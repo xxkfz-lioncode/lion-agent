@@ -1,0 +1,121 @@
+spring:
+  application:
+    name: lion-agent
+  # 默认激活环境：dev / prod（也可通过启动参数 --spring.profiles.active=prod 覆盖）
+  profiles:
+    active: dev
+  # 敏感配置统一从项目根目录的 .env 文件加载（KEY=VALUE 每行一个），
+  # optional 前缀：文件不存在时不报错，仅使用下方默认值或系统环境变量。
+  # 优先级：系统环境变量 > .env 文件 > yml 内的默认值。
+  # 参考模板见 .env.example；.env 已被 gitignore，请勿提交真实密钥。
+  config:
+    import: optional:file:.env[.properties]
+
+# mcp相关配置
+  ai:
+    mcp:
+      server:
+        name: mcp-server
+        version: 1.0.0
+        protocol: STATELESS
+        streamable-http:
+          mcp-endpoint: /mcp
+        annotation-scanner:
+          enabled: true
+      client:
+        enabled: true
+        toolcallback:
+          enabled: true
+        request-timeout: 120s
+        sse:
+          connections:
+            graph-analysis:
+              url: http://localhost:8082  # 对方的 MCP Server 地址，调用商品分析
+
+
+# ==================== MyBatis-Plus（公共） ====================
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# ==================== Sa-Token（公共） ====================
+sa-token:
+  # token 名称（同时也是 cookie 名称）
+  token-name: Authorization
+  # token 有效期（秒），默认 30 天
+  timeout: 2592000
+  # token 最低活跃频率（秒），-1 代表不限制，永不失效
+  active-timeout: -1
+  # 是否允许同一账号并发登录
+  is-concurrent: true
+  # 多人登录同一账号时，是否共用一个 token
+  is-share: false
+  # token 风格
+  token-style: uuid
+  # 是否输出操作日志
+  is-log: false
+
+# ==================== 业务自定义配置 ====================
+lion:
+  # 基于 Redis 的异步任务队列（生产者-消费者）
+  async:
+    # 每个队列的消费线程数
+    consume-threads: 2
+    # 任务处理失败后的最大重试次数（超过则标记失败，不再重投）
+    max-retry: 3
+  upload:
+    # 文件上传存储路径，默认放在项目工作目录的 upload 文件夹下
+    path: ${LION_UPLOAD_PATH:upload/}
+    # 允许上传的文件类型（MIME）
+    allowed-types: text/plain,text/markdown,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document
+  alapi:
+    # ALAPI Token，用于调用星座运势等第三方接口；通过环境变量或 .env 注入，不填则星座运势工具返回配置缺失提示
+    token: ${LION_ALAPI_TOKEN:}
+
+  # 语义缓存（方案 A）：重复问题直接复用历史回答（向量相似度命中），省 token 且秒回
+  qa-cache:
+    # 总开关；Milvus 不可用时自动降级，不影响正常对话
+    enabled: true
+    # 语义缓存专用 Milvus collection（与知识库 lion_agent_knowledge 物理隔离）
+    collection-name: lion_agent_qa_cache
+    # 向量维度，必须与 embedding 模型输出一致（text-embedding-v3 为 1024）
+    embedding-dimension: 1024
+    # 命中相似度阈值：text-embedding-v3 向量未归一化、短句相似度偏低（完全相同文本实测约 0.83），
+    # 阈值设 0.75-0.80 较为合理；过高（如 0.94）会导致永远命中不了缓存
+    threshold: 0.78
+    # 每次检索取 Top-N 条候选（取最高相似度一条）
+    top-k: 1
+
+
+# ---------- Actuator 监控与 OpenTelemetry 可观测性 ----------
+management:
+  endpoints:
+    web:
+      exposure:
+        # 暴露全部 Actuator 端点（/actuator/health、/actuator/metrics 等），便于本地排查；生产建议收敛为 health,info
+        include: "*"
+  endpoint:
+    health:
+      # 健康检查始终返回明细（含各组件连接状态），方便确认 MySQL/Redis 等是否就绪
+      show-details: always
+  tracing:
+    sampling:
+      # 链路采样率：1.0 = 100% 全量采样（Langfuse 排障期建议全量，量大后可降为 0.1）
+      probability: 1.0
+  otlp:
+    tracing:
+      # Langfuse Cloud (US) OTLP 端点；路径必须含 /api/public/otel，缺了会 404
+      endpoint: ${LANGFUSE_OTLP_ENDPOINT:https://us.cloud.langfuse.com/api/public/otel/v1/traces}
+      headers:
+        # OTLP 端点的认证方式为 Basic Auth：base64(pk-lf-xxx:sk-lf-xxx)，通过环境变量 LANGFUSE_OTLP_AUTH 注入，不写死在配置文件
+        Authorization: Basic ${LANGFUSE_OTLP_AUTH:}
+        # v4 实时摄取：不加此头，OTel 数据可能延迟最多 10 分钟才入库
+        x-langfuse-ingestion-version: "4"

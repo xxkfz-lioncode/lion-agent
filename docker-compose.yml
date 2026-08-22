@@ -1,0 +1,156 @@
+# ============================================================
+# Lion Agent 基础设施编排（MySQL / Redis / Milvus 向量库）
+#
+# 用法：
+#   docker compose up -d          # 启动全部中间件
+#   docker compose up -d mysql redis milvus-standalone   # 只启动需要的
+#   docker compose ps             # 查看状态
+#   docker compose down           # 停止（保留数据卷）
+#   docker compose down -v        # 停止并删除数据卷（慎用，会清数据）
+#
+# 说明：
+#   - 密码等敏感值从项目根目录 .env 读取（与 Spring 共用一份），
+#     未设置时使用下列默认值，与本项目 .env 保持一致。
+#   - 应用连接本机中间件时，把 .env 中对应地址改为 localhost：
+#       DB_URL      -> jdbc:mysql://localhost:3306/lion_agent?...（默认即 localhost，无需改）
+#       REDIS_HOST  -> localhost（prod 配置默认 127.0.0.1）
+#       MILVUS_HOST -> localhost（当前 .env 里是远程测试实例 118.25.109.72，需改为 localhost）
+#   - 数据持久化在命名卷：mysql-data / redis-data / etcd-data / minio-data / milvus-data
+# ============================================================
+
+name: lion-agent
+
+services:
+  # ---------------- MySQL 8 ----------------
+  mysql:
+    image: mysql:8.0
+    container_name: lion-mysql
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: lion_agent
+      MYSQL_USER: ${DB_USERNAME:-xxkfz}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-xxkfz}
+    ports:
+      - "3306:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      # 首次启动自动执行建库建表脚本（init.sql 内含 CREATE DATABASE / USE，幂等）
+      - ./src/main/resources/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ---------------- Redis ----------------
+  redis:
+    image: redis:7.4-alpine
+    container_name: lion-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-123456}", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "$$REDIS_PASSWORD", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------- etcd（Milvus 元数据存储，内部服务，不对外暴露） ----------------
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: lion-etcd
+    restart: unless-stopped
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd-data:/etcd
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ---------------- minio（Milvus 对象存储，内部服务） ----------------
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: lion-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/minio_data
+    command: minio server /minio_data
+    # 控制台 Web UI（可选）：http://localhost:9001  minioadmin/minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ---------------- Milvus standalone（向量数据库） ----------------
+  milvus-standalone:
+    image: milvusdb/milvus:v2.4.17
+    container_name: lion-milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - milvus-data:/var/lib/milvus
+    # 19530：gRPC 客户端端口（应用连接）；9091：健康检查与内部指标
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
+
+  # ---------------- Attu：Milvus Web 管理台（可选） ----------------
+  attu:
+    image: zilliz/attu:latest
+    container_name: lion-attu
+    restart: unless-stopped
+    environment:
+      MILVUS_URL: http://milvus-standalone:19530
+    ports:
+      - "8000:3000"
+    depends_on:
+      milvus-standalone:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
+  redis-data:
+  etcd-data:
+  minio-data:
+  milvus-data:

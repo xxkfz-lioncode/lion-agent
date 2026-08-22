@@ -1,0 +1,59 @@
+:root {
+  --primary: #4f66f9;
+  --primary-light: #7b8cff;
+  --primary-dark: #3a48d6;
+  --bg: #f5f6fa;
+  --sidebar-bg: #ffffff;
+  --text-main: #1f2329;
+  --text-sub: #8a8f99;
+  --border: #e8eaef;
+  --bubble-user: #4f66f9;
+  --bubble-ai: #ffffff;
+  --danger: #f56c6c;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  color: var(--text-main);
+  background: var(--bg);
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+input,
+textarea {
+  font-family: inherit;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d5d8de;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 深色侧边栏滚动条 */
+.nav-sidebar ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+.nav-sidebar ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}

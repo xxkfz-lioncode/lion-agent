@@ -1,0 +1,79 @@
+# ==================== 开发环境 ====================
+server:
+  port: 8080
+
+spring:
+  # ==================== 数据源 ====================
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL:jdbc:mysql://localhost:3306/lion_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:xxkfz}
+    password: ${DB_PASSWORD:xxkfz}
+
+  # ==================== Redis ====================
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      password: ${REDIS_PASSWORD:123456}
+      timeout: 10s
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+  # ==================== Spring AI：接入千问（DashScope OpenAI 兼容接口） ====================
+  ai:
+    openai:
+      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      # 通义千问 API Key：https://dashscope.console.aliyun.com/ 获取，通过环境变量或 .env 注入，禁止硬编码
+      api-key: ${QWEN_API_KEY:}
+      chat:
+        model: qwen3.8-max
+        temperature: 0.1
+      # 文本向量化模型（DashScope text-embedding-v3 默认输出 1024 维，需与 Milvus embedding-dimension 一致）
+      # 注意：必须放在 spring.ai.openai.embedding 下，放错位置会回退到默认模型 text-embedding-ada-002
+      embedding:
+        model: text-embedding-v3
+    chat:
+      observations:
+        log-completion: true
+        log-prompt: true
+      memory:
+        repository:
+          jdbc:
+            initialize-schema: always # 自动创建表
+
+    # ==================== 向量数据库：Milvus ====================
+    vectorstore:
+      milvus:
+        client:
+          # dev 默认连公网测试实例，可通过环境变量 / .env 覆盖
+          host: ${MILVUS_HOST:127.0.0.1}
+          port: ${MILVUS_PORT:19530}
+        database-name: ${MILVUS_DATABASE:default}
+        collection-name: ${MILVUS_COLLECTION:lion_agent_knowledge}
+        embedding-dimension: 1024
+#        metric-type: COSINE
+#        index-type: HNSW
+        # 2.x 默认 false，需显式开启以自动建库建集合
+        initialize-schema: true
+
+# ==================== SpringDoc + Knife4j ====================
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    # path: /swagger-ui.html  # 删掉这一行！新版本不要配置
+    tags-sorter: alpha
+    operations-sorter: alpha
+    persistAuthorization: true
+  packages-to-scan: com.lion.agent.controller
+
+logging:
+  level:
+    com.lion.agent: debug
