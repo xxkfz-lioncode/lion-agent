@@ -1,6 +1,6 @@
 package com.lion.agent.service.impl;
 
-import com.lion.agent.advisor.TokenUsageAdvisor;
+import com.lion.agent.common.constants.AdvisorConstants;
 import com.lion.agent.dto.KnowledgeChatRequest;
 import com.lion.agent.service.KnowledgeBaseService;
 import com.lion.agent.vo.KnowledgeChatResult;
@@ -102,8 +102,10 @@ public class KnowledgeChatServiceImpl {
         // 7. 调用大模型（带记忆/工具/缓存等全局 Advisor）
         String answer = chatClient.prompt()
                 .user(prompt)
-                // 注入用户 ID 到上下文，供 TokenUsageAdvisor 统计 token 用量时读取
-                .advisors(a -> a.param(TokenUsageAdvisor.USER_ID_KEY, userId))
+                // 注入用户 ID / 会话类型到上下文，供 TokenUsageAdvisor 统计 token 用量时读取
+                .advisors(a -> a
+                        .param(AdvisorConstants.USER_ID_KEY, userId)
+                        .param(AdvisorConstants.CHAT_TYPE_KEY, "kb"))
                 .call()
                 .content();
 

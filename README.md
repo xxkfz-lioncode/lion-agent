@@ -183,6 +183,14 @@ MILVUS_PORT=19530
 | `lion.qa-cache.collection-name` | `lion_agent_qa_cache` | 语义缓存专用 Milvus collection（与知识库物理隔离） |
 | `lion.async.consume-threads` | `2` | 异步队列消费线程数 |
 | `lion.async.max-retry` | `3` | 文档处理失败最大重试次数 |
+| `lion.advisor.token-usage-order` | `-2147483648` | Token 用量统计 Advisor 调用链顺序（order 越小越靠外层） |
+| `lion.advisor.qa-cache-order` | `-2147483647` | 语义缓存 Advisor 调用链顺序（默认在会话记忆之前，命中可短路） |
+| `lion.advisor.conversation-summary-order` | `100` | 会话记忆摘要 Advisor 调用链顺序 |
+| `lion.prompt.agent-name` | `Lion Agent` | 系统提示词中的 Agent 角色名（渲染模板变量 `{agentName}`） |
+| `lion.token-usage.executor.core-pool-size` | `2` | Token 用量落库异步线程池核心线程数 |
+| `lion.token-usage.executor.max-pool-size` | `8` | 线程池最大线程数 |
+| `lion.token-usage.executor.queue-capacity` | `1024` | 线程池队列容量（满时调用线程同步兜底，保证不丢统计） |
+| `lion.token-usage.executor.keep-alive-seconds` | `60` | 非核心线程空闲回收时间（秒） |
 
 ## 数据库表
 
@@ -194,6 +202,7 @@ MILVUS_PORT=19530
 | `chat_conversation_summary` | 会话摘要，多版本保留（`version` + `last_message_id` 增量游标） |
 | `knowledge_base` | 知识库 |
 | `knowledge_document` | 文档，`status`：0 失败 / 1 成功 / 2 处理中，失败原因记录在 `fail_reason` |
+| `ai_token_usage` | Token 用量统计，`TokenUsageAdvisor` 每次模型调用后写入（用户 / 会话 / 模型 / 输入输出 token / 耗时） |
 
 ## 核心设计
 
@@ -207,22 +216,74 @@ MILVUS_PORT=19530
 - **语义缓存**（`QaCacheAdvisor` + `QaCacheService`）：问题先做向量检索，与历史问题相似度 ≥ 阈值（默认 0.78）直接复用历史回答——省 token、秒回、答案一致；按 `userId` 隔离；Milvus 故障自动降级跳过缓存，不影响主流程。
 - **多模态**：`POST /api/chat/multimodal`，`multipart/form-data` 上传 `message` + `images`（多张）/ `imageUrls`，图文一起发送给多模态模型。
 
-### 2. 知识库上传异步化（Redis 生产者-消费者）
+### 2. 知识库 RAG 完整流程（入库 → 切分 → 检索 → 作答）
+
+#### 2.1 文档入库（上传 → 解析 → 切分 → 向量化，异步化）
+
+整条链路异步化，上传接口秒回：
 
 ```
-上传接口 → 校验 → 插元数据(status=2 处理中) → 落盘 upload/{knowledgeId}/{yyyy/MM}/{uuid}_{文件名}
-        → push 到 Redis 队列 → 秒回
+上传接口 POST /api/knowledge/{knowledgeId}/documents
+  → 校验（知识库归属 / 文件类型白名单：txt、md、pdf、doc、docx）
+  → 落盘 upload/{knowledgeId}/{yyyy/MM}/{uuid}_{原文件名}（库中存绝对路径）
+  → 插入元数据 knowledge_document（status=2 处理中）
+  → 任务入队 Redis 队列 document:process（DocumentProcessTask：docId / knowledgeId / filePath / splitter）
+  → 立即返回
 ```
 
-消费者（`DocumentProcessConsumer`，队列 `document:process`）：
+消费者 `DocumentProcessConsumer`（N 线程 BRPOP）：
 
 ```
-BRPOP 取任务 → Redis SETNX 幂等锁（防同一文档并发处理）
-            → Tika 解析 → 按策略切分 → 分批(10条/批) embedding 写 Milvus → status=1
-失败：未超过最大重试次数(默认3)重新入队，否则 status=0 + fail_reason
+取任务 → Redis SETNX 幂等锁（防同一文档并发处理）
+      → 幂等检查（status=1 直接跳过，防重复消费）
+      → TikaDocumentReader 解析（FileSystemResource 读取，兼容中文文件名）
+      → splitByStrategy 按所选策略切分（见 2.2）
+      → metadata 携带 knowledgeId / docId / fileName
+      → 分批（10 条/批，DashScope embedding 单次上限）embedding 写入 Milvus（lion_agent_knowledge，1024 维 / COSINE）
+      → status=1 成功
+失败：retryCount < max-retry(默认3) 重新入队，否则 status=0 + fail_reason（前端可展示失败原因）
 ```
 
-通用组件位于 `common/async`：`RedisTaskQueue`（生产者，Hutool `JSONUtil` 序列化）、`AbstractRedisTaskConsumer`（消费者基类，N 线程轮询 + 优雅关闭）。重启期间 Redis 队列中的任务保留，重启后继续消费。
+通用组件位于 `common/async`：`RedisTaskQueue`（生产者，Hutool `JSONUtil` 序列化）、`AbstractRedisTaskConsumer`（消费者基类，N 线程轮询 + 优雅关闭）。任务保存在 Redis 队列中，重启期间保留、重启后继续消费。
+
+#### 2.2 切分策略（splitter）
+
+上传时可指定 `splitter` 参数，默认 `token`：
+
+| 策略 | 实现 | 说明 | 适用场景 |
+| --- | --- | --- | --- |
+| `token`（默认） | Spring AI `TokenTextSplitter` | 按 token 切分 | 通用兜底 |
+| `recursive` | 递归切分，优先级 段落→句子→短句→空白，单块 ≤3000 字符（约 800 token） | 保语义优先级切分，块大小可控 | 结构化长文档 |
+| `paragraph` | 空行（`\R\s*\R`）分段 | 按自然段切，块较大 | 条例、规章制度 |
+| `sentence` | 中英文标点（`。！？!?.；;`）断句 | 块短、粒度细 | 问答密集的短文本 |
+| `line` | 按行切（trim 空行） | 块最小 | 代码、清单类 |
+| `semantic` | 先断句 → embedding 计算相邻句相似度 → 在语义断裂处（低于阈值）切分 | 块内语义连贯，检索质量最高 | 长文、专业资料（embedding 成本高） |
+
+#### 2.3 检索问答（Advanced RAG 流水线）
+
+`POST /api/knowledge/chat`，实现于 `KnowledgeChatServiceImpl`：
+
+```
+用户问题
+  → ① 语义改写：LLM 将口语化问题改写为检索友好查询（失败回退原文）
+  → ② 扩容多路检索：原问题 + 改写问题各召回 TopK=20（filter: knowledgeId == xxx，扩大候选池）
+  → ③ RRF 融合 + 粗筛：两路按 RRF 分数（1/(60+rank)）去重排序，保留前 10
+  → ④ Rerank：LLM 按相关性打分（0-100）重排，取前 5（可替换为专用 Rerank API）
+  → ⑤ 复评门控：LLM 判断资料是否足以作答；不足 → 降级返回「资料不足 + 缺失原因」
+       （省掉一次主模型调用，防幻觉）
+  → ⑥ 构造上下文 + prompt（引用片段拼接）
+  → ⑦ 走全局 ChatClient 作答（带记忆 / 工具 / 语义缓存等 Advisor）→ answer + referencedChunks
+```
+
+设计要点：
+
+- **recall 扩容**：原问题 + 改写问题各取 TopK=20，两路合并扩大候选池，靠后置重排保证 precision；
+- **RRF 融合**：两路结果按 Reciprocal Rank Fusion 加权去重，缓解单路召回偏差；
+- **LLM Rerank 精挑**：Top10 → Top5，替代一次性小 TopK 的精度损失；
+- **门控兜底**：资料明显不足时不再调用主模型，直接返回缺失信息，降低幻觉率；
+- **辅助调用与主链路隔离**：改写 / 重排 / 门控使用**无 Advisor 的裸 `ChatModel`**，避免经过全局 ChatClient 触发语义缓存、会话记忆等 Advisor（污染缓存、误耗 token）；
+- **知识库隔离**：所有检索带 `filterExpression: knowledgeId == xxx`，多知识库互不干扰；
+- **引用溯源**：回答同时返回 `referencedChunks` 引用片段列表，前端可展示来源。
 
 ### 3. 工具注册与筛选（三层收敛，RAG of Tools）
 
@@ -276,6 +337,13 @@ MCP：本服务内置 streamable-http Server（`/mcp`），同时可作为 SSE C
 | GET | `/api/knowledge/{knowledgeId}/documents` | 文档列表（轮询 `status` 感知异步处理结果） |
 | POST | `/api/knowledge/{knowledgeId}/documents` | 上传文档（`file` + `splitter`，异步处理秒回） |
 | DELETE | `/api/knowledge/{knowledgeId}/documents/{docId}` | 删除文档 |
+
+### 用量统计 `/api/token-usage`
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/token-usage` | 分页查询当前用户用量（`chatType`：chat / kb，可选） |
+| GET | `/api/token-usage/stats` | 汇总统计：总/今日调用次数、总/今日 token、平均耗时 |
 
 认证方式：除注册/登录/多模态等 `@SaIgnore` 接口外，请求头携带 `Authorization: <token>`。
 

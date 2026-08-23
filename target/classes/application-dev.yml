@@ -77,3 +77,5 @@ springdoc:
 logging:
   level:
     com.lion.agent: debug
+    # SimpleLoggerAdvisor 默认用 debug 级别打印请求/响应日志
+    org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor: debug

@@ -94,6 +94,35 @@ lion:
     # 每次检索取 Top-N 条候选（取最高相似度一条）
     top-k: 1
 
+  # Advisor 调用链顺序（order 越小越靠外层：先处理请求、后处理响应），
+  # 可在不改代码的情况下单独调整每个 Advisor 的执行顺序
+  advisor:
+    # Token 用量统计：最外层（Integer.MIN_VALUE），先于其它 Advisor，拿到经过完整调用链后的最终响应
+    token-usage-order: -100
+    # 语义缓存：次外层，先于会话记忆；缓存命中短路，跳过记忆注入与模型调用
+    qa-cache-order: 10
+    # 会话记忆摘要：内层，在模型调用前注入历史消息
+    conversation-summary-order: 300
+
+  # 系统提示词（模板集中维护在 PromptConfig，角色名由此处配置，渲染 {agentName} 变量）
+  prompt:
+    # Agent 角色名
+    agent-name: Lion Agent
+
+  # Token 用量落库异步线程池（TokenUsageAdvisor 统计写入与主调用链路解耦，不阻塞响应）
+  token-usage:
+    executor:
+      # 核心线程数
+      core-pool-size: 2
+      # 最大线程数
+      max-pool-size: 8
+      # 队列容量（队列满时由调用线程同步兜底落库，保证统计不丢失）
+      queue-capacity: 1024
+      # 非核心线程空闲回收时间（秒）
+      keep-alive-seconds: 60
+      # 线程名前缀（便于日志定位）
+      thread-name-prefix: token-usage-
+
 
 # ---------- Actuator 监控与 OpenTelemetry 可观测性 ----------
 management:

@@ -1,6 +1,7 @@
 package com.lion.agent.service;
 
 import cn.dev33.satoken.stp.StpInterface;
+import com.lion.agent.tools.DateTools;
 import com.lion.agent.tools.StarFortuneTools;
 import com.lion.agent.tools.ToolPermission;
 import com.lion.agent.tools.UserTools;
@@ -19,11 +20,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -67,7 +64,7 @@ public class ToolRegistryService {
      * 常驻工具：不参与检索、永远注册
      * UserTools（查用户数/状态）这类高频低成本工具，走检索省的那点 token 抵不上漏召回的代价
      */
-    private static final List<Class<?>> ALWAYS_ON_TOOLS = List.of(UserTools.class);
+    private static final List<Class<?>> ALWAYS_ON_TOOLS = List.of(UserTools.class, DateTools.class);
 
     /** 可检索工具池：参与向量预筛的工具（新工具写完类在这里登记一行，索引和筛选全自动） */
     private static final List<Class<?>> RETRIEVABLE_TOOLS = List.of(StarFortuneTools.class);
@@ -103,9 +100,7 @@ public class ToolRegistryService {
     public void init() {
         // 1. 常驻工具：生成 callback 直接持有，不建向量索引（不参与检索）
         for (Class<?> toolClass : ALWAYS_ON_TOOLS) {
-            for (ToolCallback cb : ToolCallbacks.from(applicationContext.getBean(toolClass))) {
-                alwaysOnCallbacks.add(cb);
-            }
+            alwaysOnCallbacks.addAll(Arrays.asList(ToolCallbacks.from(applicationContext.getBean(toolClass))));
         }
         log.info("常驻工具注册 {} 个（不走检索）", alwaysOnCallbacks.size());
 

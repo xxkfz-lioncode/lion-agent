@@ -1,5 +1,6 @@
 package com.lion.agent.advisor;
 
+import com.lion.agent.common.constants.AdvisorConstants;
 import com.lion.agent.service.QaCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
@@ -21,8 +22,8 @@ import reactor.core.publisher.Flux;
 
 import java.util.List;
 
-import static com.lion.agent.advisor.TokenUsageAdvisor.CONVERSATION_ID_KEY;
-import static com.lion.agent.advisor.TokenUsageAdvisor.USER_ID_KEY;
+import static com.lion.agent.common.constants.AdvisorConstants.CONVERSATION_ID_KEY;
+import static com.lion.agent.common.constants.AdvisorConstants.USER_ID_KEY;
 
 /**
  * 语义缓存 Advisor（Spring AI 2.0）
@@ -39,8 +40,8 @@ import static com.lion.agent.advisor.TokenUsageAdvisor.USER_ID_KEY;
  * <p>
  * 依赖的上下文参数（由业务层通过 {@code .advisors(spec -> spec.param(...))} 注入）：
  * <ul>
- *   <li>{@link TokenUsageAdvisor#USER_ID_KEY}（user_id）</li>
- *   <li>{@link TokenUsageAdvisor#CONVERSATION_ID_KEY}（chat_memory_conversation_id）</li>
+ *   <li>{@link AdvisorConstants#USER_ID_KEY}（user_id）</li>
+ *   <li>{@link AdvisorConstants#CONVERSATION_ID_KEY}（chat_memory_conversation_id）</li>
  * </ul>
  * 取 prompt 中最后一条 USER 消息作为本次问题（本 Advisor 在记忆注入前执行，因此即原始输入）。
  */
@@ -49,10 +50,24 @@ public class QaCacheAdvisor implements CallAdvisor, StreamAdvisor {
 
     private final QaCacheService qaCacheService;
 
+    /**
+     * 调用链顺序（order 越小越靠外层）。默认 {@link Ordered#HIGHEST_PRECEDENCE} + 1：
+     * 在会话记忆（ConversationSummaryAdvisor 默认 order=100）之前执行，缓存命中时短路跳过记忆注入与模型调用，
+     * 仅晚于最外层的 TokenUsageAdvisor（统计）；实际值由 {@code AiConfig} 从配置
+     * {@code lion.advisor.qa-cache-order} 读取后构造注入，可在不改代码的情况下调整。
+     */
+    private final int order;
+
     public QaCacheAdvisor(QaCacheService qaCacheService) {
-        this.qaCacheService = qaCacheService;
+        this(qaCacheService, Ordered.HIGHEST_PRECEDENCE + 1);
     }
 
+    public QaCacheAdvisor(QaCacheService qaCacheService, int order) {
+        this.qaCacheService = qaCacheService;
+        this.order = order;
+    }
+
+    @NotNull
     @Override
     public String getName() {
         return "QaCacheAdvisor";
@@ -60,9 +75,7 @@ public class QaCacheAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public int getOrder() {
-        // 在会话记忆（ConversationSummaryAdvisor order=100）之前执行：
-        // 缓存命中时短路，跳过记忆注入与模型调用；仅晚于最外层的 TokenUsageAdvisor（统计）
-        return Ordered.HIGHEST_PRECEDENCE + 1;
+        return order;
     }
 
     @NotNull

@@ -145,7 +145,8 @@ const menuTree = [
       { path: '/knowledge/upload', title: '知识库上传', icon: '📤' },
       { path: '/knowledge/chat', title: '知识库问答', icon: '🔍' }
     ]
-  }
+  },
+  { key: 'usage', path: '/usage', title: '用量统计', icon: '📊' }
 ]
 
 function toggleCollapse() {

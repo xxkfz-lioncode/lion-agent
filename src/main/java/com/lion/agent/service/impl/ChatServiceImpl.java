@@ -3,15 +3,18 @@ package com.lion.agent.service.impl;
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.lion.agent.advisor.TokenUsageAdvisor;
 import com.lion.agent.common.PageResult;
+import com.lion.agent.common.constants.AdvisorConstants;
 import com.lion.agent.dto.ChatRequest;
 import com.lion.agent.entity.ChatMessage;
 import com.lion.agent.entity.Conversation;
+import com.lion.agent.entity.TokenUsage;
 import com.lion.agent.exception.BusinessException;
 import com.lion.agent.mapper.ChatMessageMapper;
 import com.lion.agent.mapper.ConversationMapper;
+import com.lion.agent.mapper.TokenUsageMapper;
 import com.lion.agent.service.ChatService;
+import com.lion.agent.config.PromptConfig;
 import com.lion.agent.service.ToolRegistryService;
 import com.lion.agent.vo.ChatResult;
 import lombok.RequiredArgsConstructor;
@@ -19,10 +22,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
-import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,18 +58,17 @@ public class ChatServiceImpl implements ChatService {
 
     private final ConversationMapper conversationMapper;
     private final ChatMessageMapper chatMessageMapper;
+    private final TokenUsageMapper tokenUsageMapper;
     private final ChatClient chatClient;
     private final ChatMemory chatMemory;
     private final ToolRegistryService toolRegistryService;
     private final JdbcChatMemoryRepository jdbcChatMemoryRepository;
+    /** 系统提示词统一配置管理（模板与角色名集中维护，见 PromptConfig） */
+    private final PromptConfig promptConfig;
 
     /** 上传文件根目录（相对工作目录），多模态图片保存于 {uploadPath}/multimodal/yyyy/MM/dd/ 下 */
     @Value("${lion.upload.path:upload/}")
     private String uploadPath;
-
-    /** 系统提示词模板（位于 resources/prompts/system-prompt.st，支持 {agentName} 等变量） */
-    private static final PromptTemplate SYSTEM_PROMPT_TEMPLATE =
-            new PromptTemplate(new ClassPathResource("prompts/system-prompt.st"));
 
 
     @Override
@@ -276,6 +276,9 @@ public class ChatServiceImpl implements ChatService {
                         .eq(ChatMessage::getConversationId, conversationId));
         // 删除存储
         chatMemory.clear(conversationId.toString());
+        // 删除统计
+        tokenUsageMapper.delete( Wrappers.<TokenUsage>lambdaQuery()
+                .eq(TokenUsage::getConversationId, conversationId));
     }
 
     @Override
@@ -300,6 +303,11 @@ public class ChatServiceImpl implements ChatService {
                         .eq(Conversation::getUserId, userId));
         // 清理各会话在 AI 记忆侧的存储
         ids.forEach(id -> chatMemory.clear(id.toString()));
+
+        // 删除统计
+        tokenUsageMapper.delete(
+                Wrappers.<TokenUsage>lambdaQuery()
+                        .in(TokenUsage::getConversationId, ids));
     }
 
     @Override
@@ -339,14 +347,15 @@ public class ChatServiceImpl implements ChatService {
         log.info("开始请求LLM大模型（文本）......");
         long userId = StpUtil.getLoginIdAsLong();
         try {
-            // 系统提示词：定义 Agent 角色（模板在 resources/prompts/system-prompt.st，用变量渲染）
-            String systemPrompt = SYSTEM_PROMPT_TEMPLATE.render(Map.of("agentName", "Lion Agent"));
+            // 系统提示词：定义 Agent 角色（模板集中维护在 PromptConfig，用变量渲染）
+            String systemPrompt = promptConfig.renderSystemPrompt();
             ChatClient.ChatClientRequestSpec spec = chatClient.prompt()
                     .system(systemPrompt)
                     // 注入会话 ID / 用户 ID 到 Advisor 上下文（必须放在同一个 advisors 调用里，避免被覆盖）
                     .advisors(a -> a
                             .param(ChatMemory.CONVERSATION_ID, conversationId)
-                            .param(TokenUsageAdvisor.USER_ID_KEY, userId))
+                            .param(AdvisorConstants.USER_ID_KEY, userId)
+                            .param(AdvisorConstants.CHAT_TYPE_KEY, "chat"))
                     // 工具按需注册：常驻（UserTools）+ 向量预筛（StarFortuneTools 等），见 ToolRegistryService
                     .tools(toolRegistryService.selectTools(message, userId));
             // 同步调用：工具调用由 Spring AI 自动处理（执行工具后再递归调用模型），返回最终文本
@@ -368,14 +377,15 @@ public class ChatServiceImpl implements ChatService {
         log.info("开始请求LLM大模型（多模态，{} 张图片）......", imageRefs.size());
         long userId = StpUtil.getLoginIdAsLong();
         try {
-            // 系统提示词：定义 Agent 角色（模板在 resources/prompts/system-prompt.st，用变量渲染）
-            String systemPrompt = SYSTEM_PROMPT_TEMPLATE.render(Map.of("agentName", "Lion Agent"));
+            // 系统提示词：定义 Agent 角色（模板集中维护在 PromptConfig，用变量渲染）
+            String systemPrompt = promptConfig.renderSystemPrompt();
             ChatClient.ChatClientRequestSpec spec = chatClient.prompt()
                     .system(systemPrompt)
                     // 注入会话 ID / 用户 ID 到 Advisor 上下文（必须放在同一个 advisors 调用里，避免被覆盖）
                     .advisors(a -> a
                             .param(ChatMemory.CONVERSATION_ID, conversationId)
-                            .param(TokenUsageAdvisor.USER_ID_KEY, userId))
+                            .param(AdvisorConstants.USER_ID_KEY, userId)
+                            .param(AdvisorConstants.CHAT_TYPE_KEY, "chat"))
                     // 工具按需注册：常驻（UserTools）+ 向量预筛（StarFortuneTools 等），见 ToolRegistryService
                     .tools(toolRegistryService.selectTools(message, userId));
             // 同步调用：工具调用由 Spring AI 自动处理，图片通过 UserSpec.media 注入用户消息

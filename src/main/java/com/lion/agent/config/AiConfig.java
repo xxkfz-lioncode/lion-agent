@@ -6,10 +6,13 @@ import com.lion.agent.advisor.TokenUsageAdvisor;
 import com.lion.agent.mapper.ChatMessageMapper;
 import com.lion.agent.mapper.ConversationSummaryMapper;
 import com.lion.agent.service.QaCacheService;
+import com.lion.agent.service.TokenUsageService;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -24,18 +27,35 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class AiConfig {
 
+    /**
+     * 各 Advisor 的调用链顺序（order 越小越靠外层：先处理请求、后处理响应）。
+     * 由 application.yml 的 {@code lion.advisor.*} 配置维护，默认值与原硬编码一致：
+     * TokenUsageAdvisor（最外层） → QaCacheAdvisor（次外层） → ConversationSummaryAdvisor（内层）。
+     */
+    @Value("${lion.advisor.token-usage-order:-100}")
+    private int tokenUsageOrder;
+
+    @Value("${lion.advisor.qa-cache-order:10}")
+    private int qaCacheOrder;
+
+    @Value("${lion.advisor.conversation-summary-order:300}")
+    private int conversationSummaryOrder;
+
     @Bean
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
                                  QaCacheService qaCacheService, ChatMessageMapper chatMessageMapper,
-                                 ConversationSummaryMapper summaryMapper) {
+                                 ConversationSummaryMapper summaryMapper, TokenUsageService tokenUsageService) {
         ChatClient.Builder builder = chatClientBuilder
                 .defaultAdvisors(
-                        // 全局 Token 用量统计（同步 + 流式），置于调用链最外层，拿到最终响应
-                        new TokenUsageAdvisor(),
+                        // 全局 Token 用量统计（同步 + 流式），置于调用链最外层，拿到最终响应并落库 ai_token_usage
+                        new TokenUsageAdvisor(tokenUsageOrder, tokenUsageService),
                         // 语义缓存：相似问题命中直接复用历史回答（短路跳过模型调用），回答完成后自动回写缓存
-                        new QaCacheAdvisor(qaCacheService),
+                        new QaCacheAdvisor(qaCacheService, qaCacheOrder),
                         // 会话记忆：历史从 chat_message 表读取 + 增量压缩摘要（持久化到 chat_conversation_summary 表）
-                        new ConversationSummaryAdvisor(chatClientBuilder, chatMessageMapper, summaryMapper, 100)
+                        new ConversationSummaryAdvisor(chatClientBuilder, chatMessageMapper, summaryMapper,
+                                100, 5, conversationSummaryOrder),
+                        // 日志顾问,order：0
+                        new SimpleLoggerAdvisor()
                 );
         return builder.build();
     }

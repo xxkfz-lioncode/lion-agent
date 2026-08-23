@@ -5,6 +5,7 @@ import com.lion.agent.entity.ChatMessage;
 import com.lion.agent.entity.ConversationSummary;
 import com.lion.agent.mapper.ChatMessageMapper;
 import com.lion.agent.mapper.ConversationSummaryMapper;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -26,7 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import static com.lion.agent.advisor.TokenUsageAdvisor.CONVERSATION_ID_KEY;
+import static com.lion.agent.common.constants.AdvisorConstants.CONVERSATION_ID_KEY;
 
 /**
  * 会话记忆摘要压缩 Advisor（Spring AI 2.0）
@@ -48,22 +49,31 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
     private final ConversationSummaryMapper summaryMapper;
     private final int summaryThreshold;   // 触发摘要压缩的新增消息条数阈值
     private final int keepRecentCount;    // 压缩时注入的最近 N 条消息
+    private final int order;              // 调用链顺序（order 越小越靠外层）
 
     public ConversationSummaryAdvisor(ChatClient.Builder builder, ChatMessageMapper chatMessageMapper,
                                       ConversationSummaryMapper summaryMapper, int summaryThreshold) {
-        this(builder, chatMessageMapper, summaryMapper, summaryThreshold, 5);
+        this(builder, chatMessageMapper, summaryMapper, summaryThreshold, 5, 100);
     }
 
     public ConversationSummaryAdvisor(ChatClient.Builder builder, ChatMessageMapper chatMessageMapper,
                                       ConversationSummaryMapper summaryMapper,
                                       int summaryThreshold, int keepRecentCount) {
+        this(builder, chatMessageMapper, summaryMapper, summaryThreshold, keepRecentCount, 100);
+    }
+
+    public ConversationSummaryAdvisor(ChatClient.Builder builder, ChatMessageMapper chatMessageMapper,
+                                      ConversationSummaryMapper summaryMapper,
+                                      int summaryThreshold, int keepRecentCount, int order) {
         this.summaryChatClient = builder.build();
         this.chatMessageMapper = chatMessageMapper;
         this.summaryMapper = summaryMapper;
         this.summaryThreshold = summaryThreshold;
         this.keepRecentCount = keepRecentCount;
+        this.order = order;
     }
 
+    @NotNull
     @Override
     public String getName() {
         return "ConversationSummaryAdvisor";
@@ -71,20 +81,21 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public int getOrder() {
-        // 在记忆检索类 Advisor 之后执行，保证能拿到历史；在 TokenUsageAdvisor 之内，先注入再统计
-        return 100;
+        return order;
     }
 
+    @NotNull
     @Override
-    public ChatClientResponse adviseCall(ChatClientRequest advisedRequest, CallAdvisorChain chain) {
+    public ChatClientResponse adviseCall(@NotNull ChatClientRequest advisedRequest, CallAdvisorChain chain) {
         String conversationId = resolveConversationId(advisedRequest);
         // 读取历史（按需增量压缩）并注入到 prompt，然后调用下游（大模型）
         ChatClientRequest updated = injectHistory(advisedRequest, conversationId);
         return chain.nextCall(updated);
     }
 
+    @NotNull
     @Override
-    public Flux<ChatClientResponse> adviseStream(ChatClientRequest advisedRequest, StreamAdvisorChain chain) {
+    public Flux<ChatClientResponse> adviseStream(@NotNull ChatClientRequest advisedRequest, StreamAdvisorChain chain) {
         String conversationId = resolveConversationId(advisedRequest);
         ChatClientRequest updated = injectHistory(advisedRequest, conversationId);
         return chain.nextStream(updated)
