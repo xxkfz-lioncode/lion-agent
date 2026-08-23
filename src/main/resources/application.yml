@@ -83,7 +83,7 @@ lion:
   # 语义缓存（方案 A）：重复问题直接复用历史回答（向量相似度命中），省 token 且秒回
   qa-cache:
     # 总开关；Milvus 不可用时自动降级，不影响正常对话
-    enabled: true
+    enabled: false
     # 语义缓存专用 Milvus collection（与知识库 lion_agent_knowledge 物理隔离）
     collection-name: lion_agent_qa_cache
     # 向量维度，必须与 embedding 模型输出一致（text-embedding-v3 为 1024）
@@ -101,6 +101,8 @@ lion:
     token-usage-order: -100
     # 语义缓存：次外层，先于会话记忆；缓存命中短路，跳过记忆注入与模型调用
     qa-cache-order: 10
+    # 长期记忆：介于语义缓存与会话摘要之间，先注入用户历史事实/偏好，再注入会话内摘要
+    long-term-memory-order: 200
     # 会话记忆摘要：内层，在模型调用前注入历史消息
     conversation-summary-order: 300
 
@@ -122,6 +124,33 @@ lion:
       keep-alive-seconds: 60
       # 线程名前缀（便于日志定位）
       thread-name-prefix: token-usage-
+
+  # ==================== 长期记忆（跨会话） ====================
+  # 方案：对话/知识库问答完成后，异步 LLM 抽取用户事实/偏好 → MySQL ai_memory 存原文 + Milvus
+  # collection lion_agent_memory 存向量 → LongTermMemoryAdvisor 每次调用前检索注入。
+  memory:
+    # 总开关；Milvus 不可用时自动降级，不影响正常对话
+    enabled: true
+    # 是否启用 LLM 抽取（仅影响写入，读取注入不受影响）
+    extract-enabled: true
+    # 长期记忆专用 Milvus collection（与知识库/语义缓存物理隔离）
+    collection-name: lion_agent_memory
+    # 向量维度，必须与 embedding 模型输出一致（text-embedding-v3 为 1024）
+    embedding-dimension: 1024
+    # 写入去重策略：不依赖向量相似度，直接按 userId 强制合并为一条用户画像（每个用户最多一条）
+    # 读取注入相似度阈值：低于该值的记忆不注入（避免无关记忆干扰回答）。短文本记忆建议 0.50-0.60
+    search-threshold: 0.55
+    # 检索条数（Advisor 调用 search 未指定 topK 时使用）
+    search-top-k: 5
+    # 每次调用注入到 prompt 的记忆条数（AiConfig 中 LongTermMemoryAdvisor 使用）
+    inject-top-k: 5
+    # 长期记忆抽取/落库异步线程池（与主调用链路解耦，不阻塞响应）
+    executor:
+      core-pool-size: 2
+      max-pool-size: 4
+      queue-capacity: 512
+      keep-alive-seconds: 60
+      thread-name-prefix: memory-
 
 
 # ---------- Actuator 监控与 OpenTelemetry 可观测性 ----------

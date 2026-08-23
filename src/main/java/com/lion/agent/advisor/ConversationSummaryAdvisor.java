@@ -1,6 +1,7 @@
 package com.lion.agent.advisor;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.lion.agent.config.PromptConfig;
 import com.lion.agent.entity.ChatMessage;
 import com.lion.agent.entity.ConversationSummary;
 import com.lion.agent.mapper.ChatMessageMapper;
@@ -47,27 +48,31 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
     private final ChatClient summaryChatClient;
     private final ChatMessageMapper chatMessageMapper;
     private final ConversationSummaryMapper summaryMapper;
+    private final PromptConfig promptConfig;
     private final int summaryThreshold;   // 触发摘要压缩的新增消息条数阈值
     private final int keepRecentCount;    // 压缩时注入的最近 N 条消息
     private final int order;              // 调用链顺序（order 越小越靠外层）
 
     public ConversationSummaryAdvisor(ChatClient.Builder builder, ChatMessageMapper chatMessageMapper,
-                                      ConversationSummaryMapper summaryMapper, int summaryThreshold) {
-        this(builder, chatMessageMapper, summaryMapper, summaryThreshold, 5, 100);
+                                      ConversationSummaryMapper summaryMapper, int summaryThreshold,
+                                      PromptConfig promptConfig) {
+        this(builder, chatMessageMapper, summaryMapper, summaryThreshold, 5, 100, promptConfig);
     }
 
     public ConversationSummaryAdvisor(ChatClient.Builder builder, ChatMessageMapper chatMessageMapper,
                                       ConversationSummaryMapper summaryMapper,
-                                      int summaryThreshold, int keepRecentCount) {
-        this(builder, chatMessageMapper, summaryMapper, summaryThreshold, keepRecentCount, 100);
+                                      int summaryThreshold, int keepRecentCount, PromptConfig promptConfig) {
+        this(builder, chatMessageMapper, summaryMapper, summaryThreshold, keepRecentCount, 100, promptConfig);
     }
 
     public ConversationSummaryAdvisor(ChatClient.Builder builder, ChatMessageMapper chatMessageMapper,
                                       ConversationSummaryMapper summaryMapper,
-                                      int summaryThreshold, int keepRecentCount, int order) {
+                                      int summaryThreshold, int keepRecentCount, int order,
+                                      PromptConfig promptConfig) {
         this.summaryChatClient = builder.build();
         this.chatMessageMapper = chatMessageMapper;
         this.summaryMapper = summaryMapper;
+        this.promptConfig = promptConfig;
         this.summaryThreshold = summaryThreshold;
         this.keepRecentCount = keepRecentCount;
         this.order = order;
@@ -185,11 +190,10 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
                 .map(r -> r.getRole() + ": " + r.getContent())
                 .collect(Collectors.joining("\n"));
         try {
-            String promptText = "请将以下对话历史压缩为一段简洁的摘要，保留所有重要决策、关键数据和上下文信息：\n" + historyText;
-            if (oldSummaryText != null && !oldSummaryText.isBlank()) {
-                promptText = "以下是一段已有的对话摘要，请结合新对话继续压缩，输出合并后的完整摘要（不要丢失旧摘要中的重要信息）：\n\n"
-                        + "【已有摘要】\n" + oldSummaryText + "\n\n【新增对话】\n" + historyText;
-            }
+            // 摘要压缩/合并模板由 PromptConfig 统一维护（prompts/summary-compress.st / summary-merge.st）
+            String promptText = oldSummaryText != null && !oldSummaryText.isBlank()
+                    ? promptConfig.renderSummaryMerge(oldSummaryText, historyText)
+                    : promptConfig.renderSummaryCompress(historyText);
             String summary = summaryChatClient.prompt()
                     .user(promptText)
                     .call()

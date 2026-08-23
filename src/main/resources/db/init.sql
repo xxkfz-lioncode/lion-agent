@@ -134,3 +134,23 @@ CREATE TABLE ai_token_usage (
     KEY idx_created_at (created_at)
 ) ENGINE = InnoDB COMMENT ='Token 用量统计表';
 
+-- ---------------------------------------------------------------------
+-- 用户长期记忆表（长期记忆方案：LLM 抽取用户事实/偏好落库，
+-- 向量存 Milvus lion_agent_memory 供检索注入，本表为 MySQL 侧原文与元数据）
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS ai_memory;
+CREATE TABLE ai_memory
+(
+    id                     BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+    user_id                BIGINT        NOT NULL COMMENT '归属用户 ID，关联 sys_user.id',
+    memory_type            VARCHAR(16)   NOT NULL DEFAULT 'fact' COMMENT '记忆类型：fact-事实 preference-偏好',
+    content                VARCHAR(1024) NOT NULL COMMENT '记忆内容（如：用户预算是 50 万）',
+    importance             TINYINT       NOT NULL DEFAULT 3 COMMENT '重要性 1-5（LLM 抽取时打分，越高越重要）',
+    source_conversation_id BIGINT                 DEFAULT NULL COMMENT '来源会话 ID，关联 chat_conversation.id（知识库问答为 NULL）',
+    created_at             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at             DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    deleted                TINYINT       NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除 1-已删除',
+    PRIMARY KEY (id),
+    KEY                    idx_user_id (user_id)
+) ENGINE = InnoDB COMMENT ='用户长期记忆表';
+

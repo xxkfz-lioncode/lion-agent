@@ -1,8 +1,10 @@
 package com.lion.agent.service.impl;
 
 import com.lion.agent.common.constants.AdvisorConstants;
+import com.lion.agent.config.PromptConfig;
 import com.lion.agent.dto.KnowledgeChatRequest;
 import com.lion.agent.service.KnowledgeBaseService;
+import com.lion.agent.service.MemoryService;
 import com.lion.agent.vo.KnowledgeChatResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +18,7 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -57,6 +60,10 @@ public class KnowledgeChatServiceImpl {
     private final ChatClient chatClient;
     /** 无 Advisor 的裸模型：用于改写/重排/门控等辅助调用，避免污染语义缓存与会话记忆 */
     private final ChatModel chatModel;
+    /** 长期记忆服务（问答完成后异步抽取用户事实/偏好落库） */
+    private final MemoryService memoryService;
+    /** 提示词模板统一配置（回答/改写/重排/门控等模板集中维护） */
+    private final PromptConfig promptConfig;
 
     public KnowledgeChatResult chat(Long userId, KnowledgeChatRequest request) {
         knowledgeBaseService.getById(request.getKnowledgeId(), userId);
@@ -93,11 +100,9 @@ public class KnowledgeChatServiceImpl {
             return insufficient;
         }
 
-        // 6. 构造上下文 + prompt
+        // 6. 构造上下文 + prompt（模板由 PromptConfig 统一维护：prompts/kb-answer.st）
         String context = toContext(reranked);
-        String prompt = String.format(
-                "请根据以下参考资料回答问题。如果资料不足以回答，请明确说明。\n\n参考资料：\n%s\n\n问题：%s",
-                context, question);
+        String prompt = promptConfig.renderKbAnswer(context, question);
 
         // 7. 调用大模型（带记忆/工具/缓存等全局 Advisor）
         String answer = chatClient.prompt()
@@ -112,6 +117,9 @@ public class KnowledgeChatServiceImpl {
         KnowledgeChatResult result = new KnowledgeChatResult();
         result.setAnswer(answer);
         result.setReferencedChunks(toChunks(reranked));
+
+        // 8. 异步抽取并落库长期记忆（走 memoryExecutor 线程池，不阻塞响应；失败仅告警）
+        memoryService.extractAndStoreAsync(userId, null, question, answer);
         return result;
     }
 
@@ -121,15 +129,7 @@ public class KnowledgeChatServiceImpl {
      * 1. 语义改写：LLM 将口语化问题改写为检索友好查询（失败回退原文）
      */
     private String rewriteQuestion(String question) {
-        String instruction = """
-                你是一个检索查询改写专家。请把用户的问题改写成更适合向量检索的查询语句：
-                - 去除口语化表达，提取核心语义与关键实体
-                - 补充必要上下文，使查询自包含、可独立检索
-                - 保持原有含义不变
-                只输出改写后的查询，不要任何解释或前缀。
-
-                原问题：%s
-                """.formatted(question);
+        String instruction = promptConfig.renderKbRewrite(question);
         String rewritten = callLlm(instruction);
         if (!StringUtils.hasText(rewritten)) {
             log.warn("[KnowledgeChat] 查询改写失败，回退原始问题");
@@ -169,14 +169,12 @@ public class KnowledgeChatServiceImpl {
         if (candidates.size() <= topN) {
             return candidates;
         }
-        StringBuilder sb = new StringBuilder();
-        sb.append("请评估以下资料片段与问题的相关性，输出每个片段的编号和相关性分数（0-100，越高越相关）。\n");
-        sb.append("只输出格式「编号:分数」，每行一个，不要输出任何其他内容。\n\n");
-        sb.append("问题：").append(query).append("\n\n资料片段：\n");
+        List<String> chunkTexts = new ArrayList<>(candidates.size());
         for (int i = 0; i < candidates.size(); i++) {
-            sb.append("【").append(i).append("】").append(truncate(candidates.get(i).getText(), 500)).append("\n\n");
+            chunkTexts.add(truncate(candidates.get(i).getText(), 500));
         }
-        String resp = callLlm(sb.toString());
+        String instruction = promptConfig.renderKbRerank(query, chunkTexts);
+        String resp = callLlm(instruction);
 
         Map<Integer, Double> scores = new HashMap<>();
         if (StringUtils.hasText(resp)) {
@@ -210,18 +208,7 @@ public class KnowledgeChatServiceImpl {
      */
     private GateResult evaluateSufficiency(String query, List<Document> docs) {
         String context = toContext(docs);
-        String instruction = """
-                请判断以下参考资料是否足以回答用户问题。
-                如果资料直接或间接包含答案信息，输出：通过
-                如果资料明显不足以回答（内容不相关、缺少关键信息），输出：不足
-                不足时另起一行，用一句话说明缺失什么信息。
-                只需输出「通过」或「不足」及缺失说明，不要输出其他内容。
-
-                参考资料：
-                %s
-
-                用户问题：%s
-                """.formatted(context, query);
+        String instruction = promptConfig.renderKbGate(context, query);
         String resp = callLlm(instruction);
         if (!StringUtils.hasText(resp)) {
             return new GateResult(true, null);

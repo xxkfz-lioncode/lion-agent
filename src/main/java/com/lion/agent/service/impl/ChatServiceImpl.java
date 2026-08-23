@@ -15,6 +15,7 @@ import com.lion.agent.mapper.ConversationMapper;
 import com.lion.agent.mapper.TokenUsageMapper;
 import com.lion.agent.service.ChatService;
 import com.lion.agent.config.PromptConfig;
+import com.lion.agent.service.MemoryService;
 import com.lion.agent.service.ToolRegistryService;
 import com.lion.agent.vo.ChatResult;
 import lombok.RequiredArgsConstructor;
@@ -65,6 +66,8 @@ public class ChatServiceImpl implements ChatService {
     private final JdbcChatMemoryRepository jdbcChatMemoryRepository;
     /** 系统提示词统一配置管理（模板与角色名集中维护，见 PromptConfig） */
     private final PromptConfig promptConfig;
+    /** 长期记忆服务（对话完成后异步抽取用户事实/偏好落库） */
+    private final MemoryService memoryService;
 
     /** 上传文件根目录（相对工作目录），多模态图片保存于 {uploadPath}/multimodal/yyyy/MM/dd/ 下 */
     @Value("${lion.upload.path:upload/}")
@@ -108,6 +111,9 @@ public class ChatServiceImpl implements ChatService {
 
         // 5. 更新会话标题（首轮对话时用第一条消息作为标题）
         updateTitleIfNeeded(conversationId);
+
+        // 6. 异步抽取并落库长期记忆（走 memoryExecutor 线程池，不阻塞响应；失败仅告警）
+        memoryService.extractAndStoreAsync(userId, conversationId, request.getMessage(), reply);
 
         return ChatResult.builder()
                 .conversationId(conversationId)
@@ -154,6 +160,9 @@ public class ChatServiceImpl implements ChatService {
 
         // 6. 更新会话标题
         updateTitleIfNeeded(conversationId);
+
+        // 7. 异步抽取并落库长期记忆（走 memoryExecutor 线程池，不阻塞响应；失败仅告警）
+        memoryService.extractAndStoreAsync(userId, conversationId, message, reply);
 
         return ChatResult.builder()
                 .conversationId(conversationId)
@@ -226,6 +235,8 @@ public class ChatServiceImpl implements ChatService {
             saveAssistantMessage(finalConversationId, reply);
             // 更新会话标题（首轮用第一条用户消息）
             updateTitleIfNeeded(finalConversationId);
+            // 异步抽取并落库长期记忆（不阻塞响应；失败仅告警）
+            memoryService.extractAndStoreAsync(userId, finalConversationId, request.getMessage(), reply);
             // 一次性推送完整回复 + done，并关闭连接，前端恢复输入
             emitter.send(SseEmitter.event().name("message").data(Map.of("content", reply)));
             emitter.send(SseEmitter.event().name("done").data(Map.of("reply", reply)));

@@ -1,10 +1,12 @@
 package com.lion.agent.config;
 
 import com.lion.agent.advisor.ConversationSummaryAdvisor;
+import com.lion.agent.advisor.LongTermMemoryAdvisor;
 import com.lion.agent.advisor.QaCacheAdvisor;
 import com.lion.agent.advisor.TokenUsageAdvisor;
 import com.lion.agent.mapper.ChatMessageMapper;
 import com.lion.agent.mapper.ConversationSummaryMapper;
+import com.lion.agent.service.MemoryService;
 import com.lion.agent.service.QaCacheService;
 import com.lion.agent.service.TokenUsageService;
 import org.springframework.ai.chat.client.ChatClient;
@@ -12,6 +14,7 @@ import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -41,19 +44,28 @@ public class AiConfig {
     @Value("${lion.advisor.conversation-summary-order:300}")
     private int conversationSummaryOrder;
 
+    @Value("${lion.advisor.long-term-memory-order:200}")
+    private int longTermMemoryOrder;
+
+    @Value("${lion.memory.inject-top-k:5}")
+    private int memoryInjectTopK;
+
     @Bean
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
                                  QaCacheService qaCacheService, ChatMessageMapper chatMessageMapper,
-                                 ConversationSummaryMapper summaryMapper, TokenUsageService tokenUsageService) {
+                                 ConversationSummaryMapper summaryMapper, TokenUsageService tokenUsageService,
+                                 MemoryService memoryService, ChatModel chatModel, PromptConfig promptConfig) {
         ChatClient.Builder builder = chatClientBuilder
                 .defaultAdvisors(
                         // 全局 Token 用量统计（同步 + 流式），置于调用链最外层，拿到最终响应并落库 ai_token_usage
                         new TokenUsageAdvisor(tokenUsageOrder, tokenUsageService),
                         // 语义缓存：相似问题命中直接复用历史回答（短路跳过模型调用），回答完成后自动回写缓存
                         new QaCacheAdvisor(qaCacheService, qaCacheOrder),
+                        // 长期记忆：跨会话注入用户历史事实/偏好（Milvus 检索，失败自动降级跳过）
+                        new LongTermMemoryAdvisor(memoryService, chatModel, promptConfig, memoryInjectTopK, longTermMemoryOrder),
                         // 会话记忆：历史从 chat_message 表读取 + 增量压缩摘要（持久化到 chat_conversation_summary 表）
                         new ConversationSummaryAdvisor(chatClientBuilder, chatMessageMapper, summaryMapper,
-                                100, 5, conversationSummaryOrder),
+                                100, 5, conversationSummaryOrder, promptConfig),
                         // 日志顾问,order：0
                         new SimpleLoggerAdvisor()
                 );

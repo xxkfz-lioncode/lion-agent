@@ -146,6 +146,7 @@ const menuTree = [
       { path: '/knowledge/chat', title: '知识库问答', icon: '🔍' }
     ]
   },
+  { key: 'memory', path: '/memory', title: '长期记忆', icon: '🧠' },
   { key: 'usage', path: '/usage', title: '用量统计', icon: '📊' }
 ]
 
