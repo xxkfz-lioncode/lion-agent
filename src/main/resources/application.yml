@@ -177,3 +177,68 @@ management:
         Authorization: Basic ${LANGFUSE_OTLP_AUTH:}
         # v4 实时摄取：不加此头，OTel 数据可能延迟最多 10 分钟才入库
         x-langfuse-ingestion-version: "4"
+
+
+
+# ==================== Resilience4j 熔断器 + 限时器 ====================
+# 作用：保护应用不被外部依赖（大模型、第三方 API、数据库等）的故障级联拖垮。
+# 依赖：resilience4j-spring-boot4 + aspectjweaver（@CircuitBreaker / @TimeLimiter 注解由 AOP 切面拦截生效）
+resilience4j:
+  circuitbreaker:
+    # 熔断器状态机：CLOSED（关闭，正常放行）→ OPEN（打开，直接拒绝并走 fallback）→ HALF_OPEN（半开，试探放行）
+    instances:
+      # ==================== aiService：大模型对话（ChatServiceImpl.stream） ====================
+      aiService:
+        sliding-window-type: COUNT_BASED          # 滑窗类型：COUNT_BASED 按调用次数统计（另有 TIME_BASED 按时间窗口统计）
+        sliding-window-size: 10                   # 滑动窗口大小：统计最近 10 次调用
+        minimum-number-of-calls: 5                # 最少 5 次调用后才开始计算失败率（防止低流量下偶发失败误触发熔断）
+        failure-rate-threshold: 50                # 失败率阈值：最近窗口内失败率 > 50% 时触发熔断（CLOSED → OPEN）
+        wait-duration-in-open-state: 60s          # 熔断器 OPEN 状态持续时间：60 秒后自动转入 HALF_OPEN 尝试恢复
+        permitted-number-of-calls-in-half-open-state: 3 # 半开状态下允许 3 个试探请求，全部成功则恢复 CLOSED，否则重新 OPEN
+        record-exceptions:                        # 记录哪些异常算作失败（只有列表内的异常才会计入失败率，其他异常被忽略）
+          - org.springframework.web.reactive.function.client.WebClientResponseException # WebClient 调用远端返回 4xx/5xx
+          - java.net.ConnectException              # 连接被拒绝（远端不可达）
+          - java.util.concurrent.TimeoutException  # 调用超时
+          - com.lion.agent.exception.BusinessException # 统一业务包装异常，必须计入，否则业务错误码场景熔断无法触发
+      # ==================== queryStarFortune：星座运势工具（StarFortuneTools.queryStarFortune，调 ALAPI） ====================
+      queryStarFortune:
+        sliding-window-type: COUNT_BASED          # 基于调用次数的滑动窗口
+        sliding-window-size: 10                   # 统计最近 10 次调用
+        minimum-number-of-calls: 2                # 外部接口流量小，2 次失败即可开始评估（便于快速熔断）
+        failure-rate-threshold: 50                # 失败率超过 50% 时触发熔断
+        wait-duration-in-open-state: 60s          # 熔断器打开后，等待 60 秒进入半开状态
+        permitted-number-of-calls-in-half-open-state: 3 # 半开状态下允许 3 个试探请求
+        record-exceptions:                        # 记录哪些异常算作失败
+          - com.lion.agent.exception.BusinessException # ALAPI 调用异常、业务错误码均包装为该异常计入失败
+      # ==================== userTools：用户查询工具（UserTools.getUserCount / getUserStatusSummary，查 MySQL） ====================
+      userTools:
+        sliding-window-type: COUNT_BASED          # 基于调用次数的滑动窗口
+        sliding-window-size: 10                   # 统计最近 10 次调用
+        minimum-number-of-calls: 5                # 至少 5 次调用后才开始计算失败率（防止低流量误触发）
+        failure-rate-threshold: 50                # 失败率超过 50% 时触发熔断
+        wait-duration-in-open-state: 60s          # 熔断器打开后，等待 60 秒进入半开状态
+        permitted-number-of-calls-in-half-open-state: 3 # 半开状态下允许 3 个试探请求
+        record-exceptions:                        # 记录哪些异常算作失败（本地 DB 查询，主要兜底数据库不可用等场景）
+          - com.lion.agent.exception.BusinessException
+      # ==================== dateTools：时间查询工具（DateTools.getNowDate，纯本地计算） ====================
+      dateTools:
+        sliding-window-type: COUNT_BASED          # 基于调用次数的滑动窗口
+        sliding-window-size: 10                   # 统计最近 10 次调用
+        minimum-number-of-calls: 5                # 至少 5 次调用后才开始计算失败率（防止低流量误触发）
+        failure-rate-threshold: 50                # 失败率超过 50% 时触发熔断
+        wait-duration-in-open-state: 60s          # 熔断器打开后，等待 60 秒进入半开状态
+        permitted-number-of-calls-in-half-open-state: 3 # 半开状态下允许 3 个试探请求
+        record-exceptions:                        # 记录哪些异常算作失败
+          - com.lion.agent.exception.BusinessException
+
+  # ==================== 限时器（TimeLimiter）：与 @TimeLimiter 注解配套 ====================
+  # 注意：@TimeLimiter 要求方法返回 CompletableFuture，与 SseEmitter 不兼容，
+  #       ChatServiceImpl.stream() 已移除该注解；当前由 TimeLimiterTools.slowTask 演示使用。
+  timelimiter:
+    instances:
+      aiService: # 预留：ChatServiceImpl 曾使用，现已移除注解，未实际生效
+        timeout-duration: 30s         # 30 秒未响应直接超时
+        cancel-running-future: true   # 超时后自动取消正在运行的底层任务（避免线程泄漏）
+      slowTask: # @TimeLimiter 演示实例（TimeLimiterTools.runSlowTask）
+        timeout-duration: 3s          # 超过 3 秒未完成即判定超时，触发降级
+        cancel-running-future: true   # 超时后取消底层任务，避免线程泄漏

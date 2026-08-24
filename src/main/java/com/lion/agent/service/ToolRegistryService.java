@@ -4,6 +4,7 @@ import cn.dev33.satoken.stp.StpInterface;
 import com.lion.agent.tools.DateTools;
 import com.lion.agent.tools.StarFortuneTools;
 import com.lion.agent.tools.ToolPermission;
+import com.lion.agent.tools.TimeLimiterTools;
 import com.lion.agent.tools.UserTools;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import lombok.RequiredArgsConstructor;
@@ -64,7 +65,7 @@ public class ToolRegistryService {
      * 常驻工具：不参与检索、永远注册
      * UserTools（查用户数/状态）这类高频低成本工具，走检索省的那点 token 抵不上漏召回的代价
      */
-    private static final List<Class<?>> ALWAYS_ON_TOOLS = List.of(UserTools.class, DateTools.class);
+    private static final List<Class<?>> ALWAYS_ON_TOOLS = List.of(UserTools.class, DateTools.class, TimeLimiterTools.class);
 
     /** 可检索工具池：参与向量预筛的工具（新工具写完类在这里登记一行，索引和筛选全自动） */
     private static final List<Class<?>> RETRIEVABLE_TOOLS = List.of(StarFortuneTools.class);

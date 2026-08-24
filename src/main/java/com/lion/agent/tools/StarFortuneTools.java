@@ -2,6 +2,8 @@ package com.lion.agent.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lion.agent.exception.BusinessException;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -70,6 +72,7 @@ public class StarFortuneTools {
      * @return 格式化后的运势文本
      */
     @Tool(description = "查询十二星座运势（今日/明日/本周/本月/本年）。当用户询问星座运势时调用，返回中文运势文本。")
+    @CircuitBreaker(name = "queryStarFortune", fallbackMethod = "fallbackChat")
     public String queryStarFortune(
             @ToolParam(description = STAR_DESCRIPTION, required = true) String star,
             @ToolParam(description = PERIOD_DESCRIPTION, required = false) String period) {
@@ -112,7 +115,8 @@ public class StarFortuneTools {
             int code = root.path("code").asInt(0);
             String msg = root.path("msg").asText("unknown");
             if (code != 200) {
-                return "星座运势接口调用失败，错误码：" + code + "，错误信息：" + msg;
+                // 业务错误码视为调用失败，抛异常让 @CircuitBreaker 统计并触发 fallback
+                throw new BusinessException("星座运势接口调用失败，错误码：" + code + "，错误信息：" + msg);
             }
 
             JsonNode data = root.path("data");
@@ -127,9 +131,19 @@ public class StarFortuneTools {
 
             return "【" + normalized + " · " + periodName(normalizedPeriod) + "运势】\n" + formatPeriod(periodNode);
         } catch (Exception e) {
+            // 异常向上抛出交给 @CircuitBreaker 统计失败率；熔断开启后由 fallbackChat 返回降级文案
             log.error("调用 ALAPI 星座运势接口失败", e);
-            return "调用星座运势接口失败：" + e.getMessage();
+            throw new BusinessException("调用星座运势接口失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * 降级方法：ALAPI 接口调用异常、或熔断器打开（OPEN）拒绝调用时执行。
+     * 签名必须与 queryStarFortune(String, String) 匹配（同入参 + 可选 Throwable），且返回 String。
+     */
+    public String fallbackChat(String star, String period, Throwable throwable) {
+        log.error("星座运势查询触发熔断降级，原因: {}", throwable.getMessage());
+        return "抱歉，星座运势查询服务暂时不可用，请稍后再试。";
     }
 
     /**

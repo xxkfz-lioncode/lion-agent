@@ -47,7 +47,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 对话服务实现（集成 Spring AI，对接千问大模型）
@@ -197,7 +196,6 @@ public class ChatServiceImpl implements ChatService {
 
         // 3. 创建 SSE 发射器（0L 表示不自动超时）
         SseEmitter emitter = new SseEmitter(0L);
-        AtomicBoolean completed = new AtomicBoolean(false);
 
         try {
             // 先推送会话信息，便于前端拿到新会话 ID
@@ -217,17 +215,7 @@ public class ChatServiceImpl implements ChatService {
             reply = callQwen(request.getMessage(), finalConversationId);
         } catch (Exception e) {
             log.error("调用千问大模型失败", e);
-            if (completed.compareAndSet(false, true)) {
-                try {
-                    emitter.send(SseEmitter.event()
-                            .name("error")
-                            .data(Map.of("message", "AI 服务调用失败，请稍后重试")));
-                } catch (IOException ex) {
-                    log.error("SSE 推送错误失败", ex);
-                }
-                emitter.completeWithError(e);
-            }
-            return emitter;
+            throw new BusinessException("AI 服务调用失败，请稍后重试");
         }
 
         try {
