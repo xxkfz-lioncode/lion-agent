@@ -80,6 +80,16 @@ lion:
     # ALAPI Token，用于调用星座运势等第三方接口；通过环境变量或 .env 注入，不填则星座运势工具返回配置缺失提示
     token: ${LION_ALAPI_TOKEN:}
 
+  dashscope:
+    # DashScope（阿里云百炼）API Key，用于 Rerank 等专用模型接口
+    # 默认优先读取 DASHSCOPE_API_KEY，未配置则回退到 QWEN_API_KEY（与千问大模型共享同一账号）
+    api-key: ${DASHSCOPE_API_KEY:${QWEN_API_KEY:}}
+    rerank:
+      # Rerank 模型名称，可选 qwen3-vl-rerank 等
+      model: qwen3-vl-rerank
+      # Rerank API 路径（baseUrl 固定为 https://dashscope.aliyuncs.com）
+      url: /api/v1/services/rerank/text-rerank/text-rerank
+
   # 语义缓存（方案 A）：重复问题直接复用历史回答（向量相似度命中），省 token 且秒回
   qa-cache:
     # 总开关；Milvus 不可用时自动降级，不影响正常对话
@@ -230,6 +240,19 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 3 # 半开状态下允许 3 个试探请求
         record-exceptions:                        # 记录哪些异常算作失败
           - com.lion.agent.exception.BusinessException
+      # ==================== dashScopeRerank：DashScope Rerank API（DashScopeRerankUtils.rerank，外部 HTTP 调用） ====================
+      dashScopeRerank:
+        sliding-window-type: COUNT_BASED          # 基于调用次数的滑动窗口
+        sliding-window-size: 10                   # 统计最近 10 次调用
+        minimum-number-of-calls: 5                # 至少 5 次调用后才开始计算失败率（防止低流量误触发）
+        failure-rate-threshold: 50                # 失败率超过 50% 时触发熔断
+        wait-duration-in-open-state: 60s          # 熔断器打开后，等待 60 秒进入半开状态
+        permitted-number-of-calls-in-half-open-state: 3 # 半开状态下允许 3 个试探请求
+        record-exceptions:                        # 记录哪些异常算作失败（外部 HTTP 调用常见异常必须计入）
+          - org.springframework.web.client.ResourceAccessException    # 连接/IO 异常（远端不可达、网络抖动）
+          - org.springframework.web.client.RestClientResponseException  # HTTP 4xx/5xx
+          - java.util.concurrent.TimeoutException                       # 调用超时
+          - com.lion.agent.exception.BusinessException                # 业务包装异常（响应解析失败、业务错误）
 
   # ==================== 限时器（TimeLimiter）：与 @TimeLimiter 注解配套 ====================
   # 注意：@TimeLimiter 要求方法返回 CompletableFuture，与 SseEmitter 不兼容，

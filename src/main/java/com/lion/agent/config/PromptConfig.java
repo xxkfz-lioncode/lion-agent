@@ -33,25 +33,41 @@ public class PromptConfig {
 
     // ==================== 模板路径 ====================
 
-    /** 系统提示词模板路径（渲染变量：{agentName}） */
+    /**
+     * 系统提示词模板路径（渲染变量：{agentName}）
+     */
     private static final String SYSTEM_PROMPT_TEMPLATE_PATH = "prompts/system-prompt.st";
-    /** 长期记忆抽取模板路径（渲染变量：{userContent}/{assistantContent}/{jsonExample}） */
+    /**
+     * 长期记忆抽取模板路径（渲染变量：{userContent}/{assistantContent}/{jsonExample}）
+     */
     private static final String MEMORY_EXTRACT_TEMPLATE_PATH = "prompts/memory-extract.st";
-    /** 长期记忆查询改写模板路径（渲染变量：{question}） */
+    /**
+     * 长期记忆查询改写模板路径（渲染变量：{question}）
+     */
     private static final String MEMORY_REWRITE_TEMPLATE_PATH = "prompts/memory-rewrite.st";
-    /** 长期记忆注入 SystemMessage 模板路径（渲染变量：{items}） */
+    /**
+     * 长期记忆注入 SystemMessage 模板路径（渲染变量：{items}）
+     */
     private static final String MEMORY_INJECT_TEMPLATE_PATH = "prompts/memory-inject.st";
-    /** 知识库回答模板路径（渲染变量：{context}/{question}） */
+    /**
+     * 知识库回答模板路径（渲染变量：{context}/{question}）
+     */
     private static final String KB_ANSWER_TEMPLATE_PATH = "prompts/kb-answer.st";
-    /** 知识库查询改写模板路径（渲染变量：{question}） */
+    /**
+     * 知识库查询改写模板路径（渲染变量：{question}）
+     */
     private static final String KB_REWRITE_TEMPLATE_PATH = "prompts/kb-rewrite.st";
-    /** 知识库 Rerank 打分模板路径（渲染变量：{query}/{chunks}） */
-    private static final String KB_RERANK_TEMPLATE_PATH = "prompts/kb-rerank.st";
-    /** 知识库复评门控模板路径（渲染变量：{context}/{query}） */
+    /**
+     * 知识库复评门控模板路径（渲染变量：{context}/{query}）
+     */
     private static final String KB_GATE_TEMPLATE_PATH = "prompts/kb-gate.st";
-    /** 会话摘要压缩模板路径（渲染变量：{history}） */
+    /**
+     * 会话摘要压缩模板路径（渲染变量：{history}）
+     */
     private static final String SUMMARY_COMPRESS_TEMPLATE_PATH = "prompts/summary-compress.st";
-    /** 会话摘要合并模板路径（渲染变量：{oldSummary}/{history}） */
+    /**
+     * 会话摘要合并模板路径（渲染变量：{oldSummary}/{history}）
+     */
     private static final String SUMMARY_MERGE_TEMPLATE_PATH = "prompts/summary-merge.st";
 
     // ==================== 模板实例（类加载时初始化一次，不可变、线程安全） ====================
@@ -68,8 +84,6 @@ public class PromptConfig {
             new PromptTemplate(new ClassPathResource(KB_ANSWER_TEMPLATE_PATH));
     private static final PromptTemplate KB_REWRITE_TEMPLATE =
             new PromptTemplate(new ClassPathResource(KB_REWRITE_TEMPLATE_PATH));
-    private static final PromptTemplate KB_RERANK_TEMPLATE =
-            new PromptTemplate(new ClassPathResource(KB_RERANK_TEMPLATE_PATH));
     private static final PromptTemplate KB_GATE_TEMPLATE =
             new PromptTemplate(new ClassPathResource(KB_GATE_TEMPLATE_PATH));
     private static final PromptTemplate SUMMARY_COMPRESS_TEMPLATE =
@@ -93,11 +107,6 @@ public class PromptConfig {
 
     /** 渲染系统提示词（使用配置的角色名） */
     public String renderSystemPrompt() {
-        return SYSTEM_PROMPT_TEMPLATE.render(Map.of("agentName", agentName));
-    }
-
-    /** 渲染系统提示词（自定义角色名，覆盖默认配置） */
-    public String renderSystemPrompt(String agentName) {
         return SYSTEM_PROMPT_TEMPLATE.render(Map.of("agentName", agentName));
     }
 
@@ -137,14 +146,6 @@ public class PromptConfig {
         return KB_REWRITE_TEMPLATE.render(Map.of("question", question));
     }
 
-    /** 渲染知识库 Rerank 打分提示词（片段自动拼接为「【编号】内容」列表） */
-    public String renderKbRerank(String query, List<String> chunks) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < chunks.size(); i++) {
-            sb.append("【").append(i).append("】").append(chunks.get(i)).append("\n\n");
-        }
-        return KB_RERANK_TEMPLATE.render(Map.of("query", query, "chunks", sb.toString().trim()));
-    }
 
     /** 渲染知识库复评门控提示词 */
     public String renderKbGate(String context, String query) {

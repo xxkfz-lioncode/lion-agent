@@ -5,6 +5,7 @@ import com.lion.agent.config.PromptConfig;
 import com.lion.agent.dto.KnowledgeChatRequest;
 import com.lion.agent.service.KnowledgeBaseService;
 import com.lion.agent.service.MemoryService;
+import com.lion.agent.utils.DashScopeRerankUtils;
 import com.lion.agent.vo.KnowledgeChatResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,12 +21,10 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 /**
  * 知识库问答（高级 RAG 流水线）
@@ -64,6 +63,8 @@ public class KnowledgeChatServiceImpl {
     private final MemoryService memoryService;
     /** 提示词模板统一配置（回答/改写/重排/门控等模板集中维护） */
     private final PromptConfig promptConfig;
+    /** DashScope Rerank API 客户端：用专用排序模型替代 LLM 打分重排 */
+    private final DashScopeRerankUtils dashScopeRerankUtils;
 
     public KnowledgeChatResult chat(Long userId, KnowledgeChatRequest request) {
         knowledgeBaseService.getById(request.getKnowledgeId(), userId);
@@ -162,45 +163,10 @@ public class KnowledgeChatServiceImpl {
     }
 
     /**
-     * 4. Rerank：LLM 按与问题的相关性对候选片段打分，重排后取 topN
-     * （如接入专用 Rerank API，可在此处替换实现）
+     * 4. Rerank：调用 DashScope 专用 Rerank 模型对候选片段按 query 相关性重排，取 topN
      */
     private List<Document> rerank(String query, List<Document> candidates, int topN) {
-        if (candidates.size() <= topN) {
-            return candidates;
-        }
-        List<String> chunkTexts = new ArrayList<>(candidates.size());
-        for (int i = 0; i < candidates.size(); i++) {
-            chunkTexts.add(truncate(candidates.get(i).getText(), 500));
-        }
-        String instruction = promptConfig.renderKbRerank(query, chunkTexts);
-        String resp = callLlm(instruction);
-
-        Map<Integer, Double> scores = new HashMap<>();
-        if (StringUtils.hasText(resp)) {
-            for (String line : resp.split("\n")) {
-                int colon = line.indexOf(':');
-                if (colon <= 0) {
-                    continue;
-                }
-                try {
-                    int idx = Integer.parseInt(line.substring(0, colon).trim());
-                    double s = Double.parseDouble(line.substring(colon + 1).trim());
-                    if (idx >= 0 && idx < candidates.size()) {
-                        scores.put(idx, s);
-                    }
-                } catch (NumberFormatException ignored) {
-                    // 跳过无法解析的行
-                }
-            }
-        }
-        // 未拿到分数的候选排最后，保持原顺序兜底
-        return IntStream.range(0, candidates.size())
-                .boxed()
-                .sorted(Comparator.comparingDouble((Integer i) -> scores.getOrDefault(i, 0.0)).reversed())
-                .limit(topN)
-                .map(candidates::get)
-                .collect(Collectors.toList());
+        return dashScopeRerankUtils.rerank(query, candidates, topN);
     }
 
     /**

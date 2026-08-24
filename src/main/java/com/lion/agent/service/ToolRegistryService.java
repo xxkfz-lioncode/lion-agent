@@ -3,7 +3,7 @@ package com.lion.agent.service;
 import cn.dev33.satoken.stp.StpInterface;
 import com.lion.agent.tools.DateTools;
 import com.lion.agent.tools.StarFortuneTools;
-import com.lion.agent.tools.ToolPermission;
+import com.lion.agent.annotation.ToolPermission;
 import com.lion.agent.tools.TimeLimiterTools;
 import com.lion.agent.tools.UserTools;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
