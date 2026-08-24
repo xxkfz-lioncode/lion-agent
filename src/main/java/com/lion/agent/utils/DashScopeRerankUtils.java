@@ -26,7 +26,7 @@ import java.util.List;
  * <p>
  * 失败/降级时自动回退到原候选顺序的前 topN 条，避免阻塞主问答链路。
  * 请求体构建与响应解析统一使用 Hutool JSON 工具（JSONUtil），不依赖 Jackson。
- *
+ * https://www.qianwenai.com/models/qwen3-vl-rerank
  * @see <a href="https://help.aliyun.com/zh/dashscope/developer-reference/api-rerank">DashScope Rerank API</a>
  */
 @Slf4j
@@ -46,10 +46,8 @@ public class DashScopeRerankUtils {
 
     private final RestClient restClient;
 
-    public DashScopeRerankUtils() {
-        this.restClient = RestClient.builder()
-                .baseUrl(BASE_URL)
-                .build();
+    public DashScopeRerankUtils(RestClient.Builder builder) {
+        this.restClient = builder.baseUrl(BASE_URL).build();
     }
 
     /**
