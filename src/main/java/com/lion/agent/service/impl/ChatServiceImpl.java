@@ -62,7 +62,6 @@ public class ChatServiceImpl implements ChatService {
     private final ChatClient chatClient;
     private final ChatMemory chatMemory;
     private final ToolRegistryService toolRegistryService;
-    private final JdbcChatMemoryRepository jdbcChatMemoryRepository;
     /** 系统提示词统一配置管理（模板与角色名集中维护，见 PromptConfig） */
     private final PromptConfig promptConfig;
     /** 长期记忆服务（对话完成后异步抽取用户事实/偏好落库） */

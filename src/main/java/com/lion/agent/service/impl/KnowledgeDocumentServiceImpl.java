@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lion.agent.common.PageResult;
 import com.lion.agent.common.async.RedisTaskQueue;
+import com.lion.agent.common.enums.DocumentStatus;
 import com.lion.agent.dto.DocumentProcessTask;
 import com.lion.agent.entity.KnowledgeDocument;
 import com.lion.agent.exception.BusinessException;
@@ -40,19 +41,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
-
-    /**
-     * 状态：0-失败
-     */
-    private static final int STATUS_FAIL = 0;
-    /**
-     * 状态：1-成功
-     */
-    private static final int STATUS_SUCCESS = 1;
-    /**
-     * 状态：2-处理中
-     */
-    private static final int STATUS_PROCESSING = 2;
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final KnowledgeDocumentMapper documentMapper;
@@ -133,7 +121,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         doc.setFileName(originalFilename);
         doc.setFileSize(file.getSize());
         doc.setFileType(contentType);
-        doc.setStatus(STATUS_PROCESSING);
+        doc.setStatus(DocumentStatus.PROCESSING.getCode());
         documentMapper.insert(doc);
 
         Path savedPath = null;
@@ -153,7 +141,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             log.info("文档上传成功，已入队异步处理 docId={} knowledgeId={} splitter={}", doc.getId(), knowledgeId, splitter);
         } catch (Exception e) {
             log.error("文档上传失败，docId={}", doc.getId(), e);
-            doc.setStatus(STATUS_FAIL);
+            doc.setStatus(DocumentStatus.FAIL.getCode());
             doc.setFailReason(truncate(e.getMessage(), 500));
             documentMapper.updateById(doc);
             // 清理已保存的物理文件
@@ -173,7 +161,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             log.warn("[DocTask] 文档不存在，docId={}", docId);
             return;
         }
-        if (STATUS_SUCCESS == doc.getStatus()) {
+        if (DocumentStatus.SUCCESS.getCode() == doc.getStatus()) {
             log.info("[DocTask] 文档已处理成功，跳过 docId={}", docId);
             return;
         }
@@ -208,13 +196,13 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             }
 
             // 4. 标记成功
-            doc.setStatus(STATUS_SUCCESS);
+            doc.setStatus(DocumentStatus.SUCCESS.getCode());
             doc.setFailReason(null);
             documentMapper.updateById(doc);
             log.info("[DocTask] 文档处理成功 docId={} chunks={}", docId, vectorDocs.size());
         } catch (Exception e) {
             log.error("文档处理失败，docId={}", docId, e);
-            doc.setStatus(STATUS_FAIL);
+            doc.setStatus(DocumentStatus.FAIL.getCode());
             doc.setFailReason(truncate(e.getMessage(), 500));
             documentMapper.updateById(doc);
             // 清理已保存的物理文件

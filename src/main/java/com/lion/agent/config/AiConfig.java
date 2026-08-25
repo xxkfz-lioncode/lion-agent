@@ -10,6 +10,7 @@ import com.lion.agent.service.MemoryService;
 import com.lion.agent.service.QaCacheService;
 import com.lion.agent.service.TokenUsageService;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
@@ -55,6 +56,7 @@ public class AiConfig {
                                  QaCacheService qaCacheService, ChatMessageMapper chatMessageMapper,
                                  ConversationSummaryMapper summaryMapper, TokenUsageService tokenUsageService,
                                  MemoryService memoryService, ChatModel chatModel, PromptConfig promptConfig) {
+
         ChatClient.Builder builder = chatClientBuilder
                 .defaultAdvisors(
                         // 全局 Token 用量统计（同步 + 流式），置于调用链最外层，拿到最终响应并落库 ai_token_usage
@@ -67,7 +69,10 @@ public class AiConfig {
                         new ConversationSummaryAdvisor(chatClientBuilder, chatMessageMapper, summaryMapper,
                                 100, 5, conversationSummaryOrder, promptConfig),
                         // 日志顾问,order：0
-                        new SimpleLoggerAdvisor()
+                        new SimpleLoggerAdvisor(),
+                        // 会话记忆：调用前自动从 ChatMemory（JDBC 窗口记忆）读取该会话历史注入上下文，
+                        // 调用完成后把本轮问答追加写入存储，实现多轮对话记忆
+                        MessageChatMemoryAdvisor.builder(chatMemory).build()
                 );
         return builder.build();
     }
@@ -78,12 +83,10 @@ public class AiConfig {
      */
     @Bean
     public ChatMemory messageWindowChatMemory(JdbcChatMemoryRepository repository) {
-        return MessageWindowChatMemory.builder()
+       return MessageWindowChatMemory.builder()
                 .chatMemoryRepository(repository)
                 // 每个会话保留最近 20 条消息
                 .maxMessages(500)
                 .build();
     }
-
-
 }
