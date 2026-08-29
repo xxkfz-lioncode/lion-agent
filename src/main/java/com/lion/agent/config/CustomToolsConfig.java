@@ -1,7 +1,11 @@
 package com.lion.agent.config;
 
+import com.lion.agent.service.HolidayCountdownService;
+import com.lion.agent.service.WeatherService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.tool.function.FunctionToolCallback;
 import org.springframework.ai.tool.method.MethodToolCallback;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,13 +14,18 @@ import org.springframework.util.ReflectionUtils;
 import java.lang.reflect.Method;
 
 /**
- * 编程式使用
- * 天气查询工具注册配置：演示绕开 {@code @Tool} 注解、纯手工构建 {@link ToolCallback}。
+ * 自定义工具统一注册配置：只负责把业务 Service 声明为 Spring AI 的 {@link ToolCallback}，
+ * 具体业务逻辑放在对应的 Service 类中（{@link WeatherService} / {@link HolidayCountdownService}），
+ * 实现"配置与实现分离"。
  *
- * <p>适用场景：
+ * <p>演示 Spring AI 2.0 两种工具声明方式：
  * <ul>
- *   <li>工具方法来自第三方/历史代码，无法直接在方法上加 {@code @Tool} 注解；</li>
- *   <li>工具名、描述、参数结构需要运行时动态生成（如多租户差异化、配置驱动）。</li>
+ *   <li><b>编程式（{@link MethodToolCallback}）</b>：{@link #weatherTool()} —— 反射绑定既有方法，
+ *       手写 inputSchema。适用：工具方法来自第三方/历史代码，无法直接加 {@code @Tool} 注解，
+ *       或工具名、描述、参数结构需运行时动态生成的场景。</li>
+ *   <li><b>函数式（{@link FunctionToolCallback}）</b>：{@link #holidayCountdownTool()} ——
+ *       直接传方法引用作为执行体，用 {@code .inputType(Class)} 声明入参结构，
+ *       Spring AI 自动生成参数 JSON Schema，无需反射、无需手写。</li>
  * </ul>
  *
  * <p>关键约束：Spring AI 2.0 启动时会校验每个 ToolCallback 的 {@link ToolDefinition}
@@ -24,29 +33,18 @@ import java.lang.reflect.Method;
  * 缺失会抛 {@code IllegalStateException: inputSchema cannot be null or empty}。
  */
 @Configuration
-public class WeatherToolConfig {
+@RequiredArgsConstructor
+public class CustomToolsConfig {
 
-    /**
-     * 天气服务：模拟无注解的外部服务，方法签名与下方 inputSchema 的字段一一对应。
-     */
-    static class WeatherService {
+    /** 天气查询业务实现 */
+    private final WeatherService weatherService;
 
-        /**
-         * 按城市查询气温。
-         *
-         * @param city 城市名称
-         * @param unit 温度单位：C=摄氏度，F=华氏度
-         * @return 气温文本，未知城市返回提示
-         */
-        public String queryWeatherByCity(String city, String unit) {
-            if ("北京".equals(city)) {
-                return "28°" + ("C".equals(unit) ? "C" : "F");
-            }
+    /** 节日倒计时业务实现 */
+    private final HolidayCountdownService holidayCountdownService;
 
-
-            return "未知城市";
-        }
-    }
+    // =====================================================================
+    // 工具一：天气查询 —— MethodToolCallback（编程式）
+    // =====================================================================
 
     /**
      * 手工构建天气查询工具并注册为 Bean，可直接用于 {@code ChatClient.defaultTools(...)}。
@@ -63,8 +61,6 @@ public class WeatherToolConfig {
      */
     @Bean
     public ToolCallback weatherTool() {
-        WeatherService service = new WeatherService();
-
         // 反射定位业务方法：两个 String 参数，与下方 inputSchema 的 properties 一一对应
         Method method = ReflectionUtils.findMethod(WeatherService.class,
                 "queryWeatherByCity", String.class, String.class);
@@ -93,10 +89,33 @@ public class WeatherToolConfig {
         return MethodToolCallback.builder()
                 .toolDefinition(definition)  // 传入上一步构建的定义
                 .toolMethod(method)          // 绑定被调用的方法
-                .toolObject(service)         // 绑定方法所属对象（含业务状态）
+                .toolObject(weatherService)  // 绑定方法所属对象（注入的 Service）
                 .build();
     }
 
+    // =====================================================================
+    // 工具二：节日倒计时 —— FunctionToolCallback（函数式）
+    // =====================================================================
 
-
+    /**
+     * 注册"节日倒计时"工具。
+     *
+     * <p>函数式声明四要素：
+     * <ol>
+     *   <li><b>工具名</b>（第一个参数）：模型看到的名称，同一 ChatClient 内不可重名；</li>
+     *   <li><b>执行函数</b>（第二个参数）：方法引用，入参就是自动反序列化的
+     *       {@link HolidayCountdownService.HolidayInput} 对象，返回 String 即工具结果；</li>
+     *   <li>{@code description}：模型判断何时调用的依据，要写清支持的节日范围；</li>
+     *   <li>{@code inputType}：入参类型，自动生成 Schema（等价于手写 inputSchema，但不会写错）。</li>
+     * </ol>
+     *
+     * @return 节日倒计时工具回调
+     */
+    @Bean
+    public ToolCallback holidayCountdownTool() {
+        return FunctionToolCallback.builder("holidayCountdown", holidayCountdownService::countdown)
+                .description("查询指定节日距离今天还有多少天。支持的节日：元旦、春节、劳动节、国庆节、圣诞节")
+                .inputType(HolidayCountdownService.HolidayInput.class)
+                .build();
+    }
 }

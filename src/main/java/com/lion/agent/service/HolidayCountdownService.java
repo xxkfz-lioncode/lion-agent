@@ -1,35 +1,21 @@
-package com.lion.agent.config;
+package com.lion.agent.service;
 
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.function.FunctionToolCallback;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 
 /**
- * 节日倒计时工具注册配置：演示 Spring AI 2.0 <b>函数式声明</b>工具（{@link FunctionToolCallback}）。
- *
- * <p>与 {@link WeatherToolConfig}（{@code MethodToolCallback}，绑定一个既有方法）不同，
- * 本类以"按工具语义命名配置类"为原则：类名即职责——{@code HolidayToolConfig} 只负责节日倒计时这一个工具。
- * 函数式风格直接传一个 Lambda/方法引用作为执行体，无需反射定位方法、无需手写 inputSchema——
- * 用 {@code .inputType(输入类型.class)} 声明入参结构，Spring AI 自动生成参数 JSON Schema。
- *
- * <p>三种 builder 重载：
- * <ul>
- *   <li>{@code builder(name, Function<I, O>)} —— 无状态输入，最常见；</li>
- *   <li>{@code builder(name, BiFunction<I, ToolContext, O>)} —— 需要读取调用上下文（如会话 ID/用户 ID）；</li>
- *   <li>{@code builder(name, Supplier<O>)} / {@code builder(name, Consumer<I>)} —— 无参/无返回的极端场景。</li>
- * </ul>
+ * 节日倒计时服务：负责"查询指定节日距离今天还有多少天"的全部业务逻辑。
+ * 与工具注册（{@code CustomToolsConfig}）分离，逻辑可独立复用/测试。
  */
-@Configuration
-public class HolidayToolConfig {
+@Service
+public class HolidayCountdownService {
 
     /**
      * 工具输入参数：record 的字段即工具参数。
-     * {@link FunctionToolCallback.Builder#inputType} 会据此自动生成 JSON Schema
+     * {@code FunctionToolCallback.Builder#inputType} 会据此自动生成 JSON Schema
      * （字段名、类型、必填），无需手写。
      */
     public record HolidayInput(String holiday) {
@@ -63,35 +49,13 @@ public class HolidayToolConfig {
     );
 
     /**
-     * 注册"节日倒计时"工具。
-     *
-     * <p>函数式声明四要素：
-     * <ol>
-     *   <li><b>工具名</b>（第一个参数）：模型看到的名称，同一 ChatClient 内不可重名；</li>
-     *   <li><b>执行函数</b>（第二个参数）：入参就是自动反序列化的 {@link HolidayInput} 对象，
-     *       返回 String 即工具结果；</li>
-     *   <li>{@code description}：模型判断何时调用的依据，要写清支持的节日范围；</li>
-     *   <li>{@code inputType}：入参类型，自动生成 Schema（等价于手写 inputSchema，但不会写错）。</li>
-     * </ol>
-     *
-     * @return 节日倒计时工具回调
-     */
-    @Bean
-    public ToolCallback holidayCountdownTool() {
-        return FunctionToolCallback.builder("holidayCountdown", this::countdown)
-                .description("查询指定节日距离今天还有多少天。支持的节日：元旦、春节、劳动节、国庆节、圣诞节")
-                .inputType(HolidayInput.class)
-                .build();
-    }
-
-    /**
      * 倒计时核心逻辑：输入节日名，返回"今天距离下一次该节日还有 N 天"。
      * 若今天的日期已过今年该节日，自动滚动到下一次（跨年）。
      *
      * @param input 模型解析出的入参（holiday 为节日名称）
      * @return 倒计时文案；输入不支持时返回友好提示
      */
-    private String countdown(HolidayInput input) {
+    public String countdown(HolidayInput input) {
         if (input == null || input.holiday() == null || input.holiday().isBlank()) {
             return "请告诉我您想查询的节日名称，例如：元旦、春节、劳动节、国庆节、圣诞节";
         }
