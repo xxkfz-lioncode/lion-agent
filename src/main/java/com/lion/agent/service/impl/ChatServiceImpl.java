@@ -22,7 +22,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
@@ -66,7 +66,6 @@ public class ChatServiceImpl implements ChatService {
     private final PromptConfig promptConfig;
     /** 长期记忆服务（对话完成后异步抽取用户事实/偏好落库） */
     private final MemoryService memoryService;
-
     /** 上传文件根目录（相对工作目录），多模态图片保存于 {uploadPath}/multimodal/yyyy/MM/dd/ 下 */
     @Value("${lion.upload.path:upload/}")
     private String uploadPath;

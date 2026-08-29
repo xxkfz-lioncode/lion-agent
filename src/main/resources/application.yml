@@ -24,13 +24,18 @@ spring:
           enabled: true
       client:
         enabled: true
+        # 懒初始化：创建客户端时不立即连接远程 MCP Server。
+        # 注意：仅靠它无法阻止 WebFlux SSE transport 的异步连接（连接失败会以 ERROR 日志出现），
+        # 彻底避免报错需要下方 connections 不配置地址；恢复 MCP 服务后取消注释即可。
+        initialized: false
         toolcallback:
           enabled: true
         request-timeout: 120s
         sse:
           connections:
-            graph-analysis:
-              url: http://localhost:8082  # 对方的 MCP Server 地址，调用商品分析
+            # graph-analysis:
+            #   url: http://localhost:8082  # 对方的 MCP Server 地址，调用商品分析
+            #   ↓ 恢复方式：启动 MCP Server(8082) 后，取消上面两行注释并保存，重启应用
 
 
 # ==================== MyBatis-Plus（公共） ====================

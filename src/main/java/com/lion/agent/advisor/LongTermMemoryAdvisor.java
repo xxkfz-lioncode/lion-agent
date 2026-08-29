@@ -136,9 +136,11 @@ public class LongTermMemoryAdvisor implements CallAdvisor, StreamAdvisor {
     }
 
     private String extractUserQuery(ChatClientRequest request) {
-        for (Message m : request.prompt().getInstructions()) {
-            if (MessageType.USER.equals(m.getMessageType())) {
-                return m.getText();
+        List<Message> instructions = request.prompt().getInstructions();
+        for (int i = instructions.size() - 1; i >= 0; i--) {
+            Message msg = instructions.get(i);
+            if (msg.getMessageType() == MessageType.USER) {
+                return msg.getText();
             }
         }
         return null;

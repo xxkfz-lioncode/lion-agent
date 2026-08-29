@@ -6,6 +6,7 @@ import com.lion.agent.advisor.QaCacheAdvisor;
 import com.lion.agent.advisor.TokenUsageAdvisor;
 import com.lion.agent.mapper.ChatMessageMapper;
 import com.lion.agent.mapper.ConversationSummaryMapper;
+import com.lion.agent.memory.ReadLimitChatMemory;
 import com.lion.agent.service.MemoryService;
 import com.lion.agent.service.QaCacheService;
 import com.lion.agent.service.TokenUsageService;
@@ -72,7 +73,7 @@ public class AiConfig {
                         new SimpleLoggerAdvisor(),
                         // 会话记忆：调用前自动从 ChatMemory（JDBC 窗口记忆）读取该会话历史注入上下文，
                         // 调用完成后把本轮问答追加写入存储，实现多轮对话记忆
-                        MessageChatMemoryAdvisor.builder(chatMemory).build()
+                        MessageChatMemoryAdvisor.builder(new ReadLimitChatMemory(chatMemory, 30)).build()
                 );
         return builder.build();
     }

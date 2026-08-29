@@ -86,8 +86,11 @@ public class ToolRegistryService {
     private final List<ToolCallback> alwaysOnCallbacks = new ArrayList<>();
 
     private final ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider;
+
     private final CircuitBreakerRegistry circuitBreakerRegistry;
 
+    public final ToolCallback weatherTool;
+    public final ToolCallback holidayCountdownTool;
 
 
     /**
@@ -103,6 +106,11 @@ public class ToolRegistryService {
         for (Class<?> toolClass : ALWAYS_ON_TOOLS) {
             alwaysOnCallbacks.addAll(Arrays.asList(ToolCallbacks.from(applicationContext.getBean(toolClass))));
         }
+        // 手工构建的工具（无 @Tool 注解，无法经 ToolCallbacks.from 反射生成）：
+        // 单独注册进常驻池，注意必须在循环外 add 一次——放进循环会被 ALWAYS_ON_TOOLS 的个数重复注册，
+        // selectTools 返回同名工具列表，Spring AI 校验 ToolCallingChatOptions 会抛 "Multiple tools with the same name"
+        alwaysOnCallbacks.add(weatherTool);
+        alwaysOnCallbacks.add(holidayCountdownTool);
         log.info("常驻工具注册 {} 个（不走检索）", alwaysOnCallbacks.size());
 
         // 2. 可检索工具：反射生成方法级 callback，构建本地索引 + 向量索引文档
