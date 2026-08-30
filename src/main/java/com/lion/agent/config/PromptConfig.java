@@ -62,7 +62,7 @@ public class PromptConfig {
      */
     private static final String KB_GATE_TEMPLATE_PATH = "prompts/kb-gate.st";
     /**
-     * 意图识别模板路径（渲染变量：{knowledgeBases}/{question}）
+     * 意图识别模板路径（渲染变量：{knowledgeBases}/{selectedKnowledge}/{question}）
      */
     private static final String INTENT_CLASSIFY_TEMPLATE_PATH = "prompts/intent-classify.st";
     /**
@@ -160,10 +160,11 @@ public class PromptConfig {
 
     // ==================== 意图识别 ====================
 
-    /** 渲染意图识别提示词（knowledgeBases 为「无」或知识库名称逗号分隔列表） */
-    public String renderIntentClassify(String knowledgeBases, String question) {
+    /** 渲染意图识别提示词（knowledgeBases/selectedKnowledge 为「无」或知识库名称，selectedKnowledge 为「全部知识库」表示未指定） */
+    public String renderIntentClassify(String knowledgeBases, String selectedKnowledge, String question) {
         return INTENT_CLASSIFY_TEMPLATE.render(Map.of(
                 "knowledgeBases", knowledgeBases == null || knowledgeBases.isBlank() ? "无" : knowledgeBases,
+                "selectedKnowledge", selectedKnowledge == null || selectedKnowledge.isBlank() ? "无" : selectedKnowledge,
                 "question", question));
     }
 

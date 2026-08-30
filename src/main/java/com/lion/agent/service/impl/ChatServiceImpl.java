@@ -111,15 +111,16 @@ public class ChatServiceImpl implements ChatService {
             KnowledgeRetrievalService.RetrievalResult result =
                     knowledgeRetrievalService.retrieve(userId, request.getMessage(), request.getKnowledgeId());
             if (!result.qualified()) {
-                // 门控拦截：资料不足，直接返回提示，不浪费主模型调用
-                reply = "抱歉，当前知识库中的资料不足以回答该问题。"
-                        + (StringUtils.hasText(result.reason()) ? " 缺失信息：" + result.reason() : "");
+                // 门控拦截：资料不足以从知识库回答，降级为一般对话由主模型兜底
+                log.info("[Chat] 知识库检索未命中，降级为一般对话：{}", result.reason());
+                reply = callQwen(request.getMessage(), conversationId, "chat");
+                referencedChunks = List.of();
             } else {
                 // 检索通过：kb-answer 模板渲染（上下文 + 问题），chatType=kb
                 String prompt = promptConfig.renderKbAnswer(result.context(), request.getMessage());
                 reply = callQwen(prompt, conversationId, "kb");
+                referencedChunks = result.chunks();
             }
-            referencedChunks = result.chunks();
         } else {
             // 一般对话：原链路（带记忆/工具/缓存等全局 Advisor）
             reply = callQwen(request.getMessage(), conversationId, "chat");
@@ -245,13 +246,14 @@ public class ChatServiceImpl implements ChatService {
                 KnowledgeRetrievalService.RetrievalResult result =
                         knowledgeRetrievalService.retrieve(userId, request.getMessage(), request.getKnowledgeId());
                 if (!result.qualified()) {
-                    reply = "抱歉，当前知识库中的资料不足以回答该问题。"
-                            + (StringUtils.hasText(result.reason()) ? " 缺失信息：" + result.reason() : "");
+                    log.info("[Chat] 知识库检索未命中，降级为一般对话：{}", result.reason());
+                    reply = callQwen(request.getMessage(), finalConversationId, "chat");
+                    referencedChunks = List.of();
                 } else {
                     String prompt = promptConfig.renderKbAnswer(result.context(), request.getMessage());
                     reply = callQwen(prompt, finalConversationId, "kb");
+                    referencedChunks = result.chunks();
                 }
-                referencedChunks = result.chunks();
             } else {
                 reply = callQwen(request.getMessage(), finalConversationId, "chat");
             }

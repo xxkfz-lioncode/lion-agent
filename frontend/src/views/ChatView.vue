@@ -89,26 +89,57 @@
           :class="msg.role === 'user' ? 'user' : 'ai'"
         >
           <div class="message-avatar">{{ msg.role === 'user' ? '👤' : '🦁' }}</div>
-          <div class="message-bubble">
-            <div v-if="msg.content" class="message-text" v-html="renderMarkdown(msg.content)"></div>
-            <div v-else-if="loading" class="typing-wrapper">
-              <div class="typing-text">{{ thinkingHint }}</div>
-              <div class="typing-indicator">
-                <span class="typing-dot"></span>
-                <span class="typing-dot"></span>
-                <span class="typing-dot"></span>
-              </div>
-              <div v-if="thinkingElapsed > 0" class="typing-elapsed">已思考 {{ thinkingElapsed }}s</div>
-            </div>
-            <div v-if="msg.referencedChunks && msg.referencedChunks.length" class="reference-box">
-              <div class="reference-title">📎 引用来源（{{ msg.referencedChunks.length }}）</div>
-              <div v-for="(chunk, i) in msg.referencedChunks" :key="i" class="reference-item">
-                <div class="reference-meta">
-                  <span class="reference-kb" :title="chunk.knowledgeName || '未知知识库'">{{ chunk.knowledgeName || '未知知识库' }}</span>
-                  <span v-if="chunk.fileName" class="reference-file" :title="chunk.fileName">{{ chunk.fileName }}</span>
+          <div class="message-content">
+            <div class="message-bubble">
+              <template v-if="msg.role !== 'user' || editingMessageId !== msg.id">
+                <div v-if="msg.content" class="message-text" v-html="renderMarkdown(msg.content)"></div>
+                <div v-else-if="loading" class="typing-wrapper">
+                  <div class="typing-text">{{ thinkingHint }}</div>
+                  <div class="typing-indicator">
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
+                  </div>
+                  <div v-if="thinkingElapsed > 0" class="typing-elapsed">已思考 {{ thinkingElapsed }}s</div>
                 </div>
-                <div class="reference-content">{{ chunk.content }}</div>
+              </template>
+              <template v-else>
+                <textarea
+                  v-model="editingContent"
+                  class="edit-textarea"
+                  rows="3"
+                  :disabled="loading"
+                  @keydown.enter.exact.prevent="submitEdit(msg.id)"
+                ></textarea>
+                <div class="edit-actions">
+                  <button class="edit-cancel" :disabled="loading" @click="cancelEdit">取消</button>
+                  <button class="edit-send" :disabled="loading || !editingContent.trim()" @click="submitEdit(msg.id)">发送</button>
+                </div>
+              </template>
+              <div v-if="msg.referencedChunks && msg.referencedChunks.length" class="reference-box">
+                <div class="reference-title">📎 引用来源（{{ msg.referencedChunks.length }}）</div>
+                <div v-for="(chunk, i) in msg.referencedChunks" :key="i" class="reference-item">
+                  <div class="reference-meta">
+                    <span class="reference-kb" :title="chunk.knowledgeName || '未知知识库'">{{ chunk.knowledgeName || '未知知识库' }}</span>
+                    <span v-if="chunk.fileName" class="reference-file" :title="chunk.fileName">{{ chunk.fileName }}</span>
+                  </div>
+                  <div class="reference-content">{{ chunk.content }}</div>
+                </div>
               </div>
+            </div>
+            <div v-if="msg.role === 'user'" class="message-actions">
+              <button v-if="editingMessageId !== msg.id" class="action-btn" title="复制" @click="copyText(msg.content)">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+              <button v-if="editingMessageId !== msg.id && !loading" class="action-btn" title="修改" @click="startEdit(msg)">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+              </button>
             </div>
           </div>
         </div>
@@ -170,6 +201,9 @@ const currentMessages = ref([
   { id: 'welcome', role: 'ai', content: '你好！有什么我可以帮你的吗？' }
 ])
 
+const editingMessageId = ref(null)
+const editingContent = ref('')
+
 const conversationId = ref(route.query.id ? Number(route.query.id) : null)
 const knowledgeBases = ref([])
 const selectedKnowledgeId = ref(null)
@@ -206,6 +240,12 @@ const renameLoading = ref(false)
 
 const convKeyword = ref('')
 const convPagination = ref({ pageNum: 1, pageSize: 20, pages: 1, total: 0 })
+
+// 自增消息 id 生成器，避免用户消息与 AI 消息因 Date.now() 相同而串位
+let msgIdSeq = 0
+function nextMsgId() {
+  return `${Date.now()}-${++msgIdSeq}`
+}
 
 watch(() => route.query.id, (id) => {
   if (id) {
@@ -426,14 +466,73 @@ function stopThinkingTimer() {
 
 onBeforeUnmount(stopThinkingTimer)
 
+function copyText(text) {
+  if (!text) return
+  const value = typeof text === 'string' ? text : String(text || '')
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(value).then(() => {
+      showToast('已复制到剪贴板', 'success')
+    }).catch(() => fallbackCopy(value))
+  } else {
+    fallbackCopy(value)
+  }
+}
+
+function fallbackCopy(text) {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    document.execCommand('copy')
+    showToast('已复制到剪贴板', 'success')
+  } catch (e) {
+    console.error('复制失败', e)
+  }
+  document.body.removeChild(textarea)
+}
+
+function startEdit(msg) {
+  if (loading.value || msg.role !== 'user') return
+  editingMessageId.value = msg.id
+  editingContent.value = msg.content || ''
+}
+
+function cancelEdit() {
+  editingMessageId.value = null
+  editingContent.value = ''
+}
+
+async function submitEdit(messageId) {
+  const content = editingContent.value.trim()
+  if (!content || loading.value) return
+
+  const index = currentMessages.value.findIndex(m => m.id === messageId)
+  if (index === -1) return
+
+  // 更新当前消息，并截断后续消息（重新生成从该轮开始）
+  currentMessages.value[index].content = content
+  currentMessages.value = currentMessages.value.slice(0, index + 1)
+  editingMessageId.value = null
+  editingContent.value = ''
+
+  await doSend(content)
+}
+
 async function send() {
   const content = inputText.value.trim()
   if (!content || loading.value) return
 
-  currentMessages.value.push({ id: Date.now(), role: 'user', content })
-  const aiMsgId = Date.now() + 1
-  currentMessages.value.push({ id: aiMsgId, role: 'ai', content: '' })
   inputText.value = ''
+  currentMessages.value.push({ id: nextMsgId(), role: 'user', content })
+  await doSend(content)
+}
+
+async function doSend(content) {
+  const aiMsgId = nextMsgId()
+  currentMessages.value.push({ id: aiMsgId, role: 'ai', content: '' })
   loading.value = true
   startThinkingTimer()
   scrollToBottom()
@@ -743,8 +842,19 @@ async function send() {
   font-size: 18px;
 }
 
-.message-bubble {
+.message-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   max-width: 70%;
+}
+
+.message-item.user .message-content {
+  align-items: flex-end;
+}
+
+.message-bubble {
+  max-width: 100%;
   padding: 12px 16px;
   border-radius: 12px;
   background: #f5f6fa;
@@ -755,6 +865,105 @@ async function send() {
 .message-item.user .message-bubble {
   background: var(--primary);
   color: #fff;
+}
+
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.message-item.user:hover .message-actions {
+  opacity: 1;
+}
+
+.action-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-weak);
+  transition: background 0.2s, color 0.2s;
+}
+
+.action-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-main);
+}
+
+.edit-textarea {
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 8px;
+  resize: vertical;
+  font-size: 14px;
+  line-height: 1.5;
+  font-family: inherit;
+  box-sizing: border-box;
+  background: #fff;
+  color: var(--text-main);
+  outline: none;
+}
+
+.edit-textarea:focus {
+  border-color: rgba(255, 255, 255, 0.8);
+}
+
+.edit-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.edit-cancel,
+.edit-send {
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.2s;
+}
+
+.edit-cancel {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.edit-cancel:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.edit-send {
+  background: #fff;
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.edit-send:hover:not(:disabled) {
+  background: #f0f4ff;
+}
+
+.edit-send:disabled,
+.edit-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .message-text :deep(p) {
