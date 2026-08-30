@@ -12,13 +12,13 @@ import com.lion.agent.mapper.KnowledgeDocumentMapper;
 import com.lion.agent.service.KnowledgeBaseService;
 import com.lion.agent.service.KnowledgeDocumentService;
 import com.lion.agent.service.async.DocumentProcessConsumer;
+import com.lion.agent.splitter.DocumentSplitterStrategy;
+import com.lion.agent.splitter.SplitterStrategyRegistry;
+import com.lion.agent.splitter.SplitterType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
-import org.springframework.ai.transformer.splitter.TextSplitter;
-import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -34,7 +34,6 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.util.*;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -45,38 +44,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private final KnowledgeBaseService knowledgeBaseService;
     private final KnowledgeDocumentMapper documentMapper;
     private final VectorStore vectorStore;
-    private final EmbeddingModel embeddingModel;
     private final RedisTaskQueue taskQueue;
-
-    /**
-     * 切分方式：Token 切分（默认）
-     */
-    private static final String SPLITTER_TOKEN = "token";
-    /**
-     * 切分方式：递归切分
-     */
-    private static final String SPLITTER_RECURSIVE = "recursive";
-    /**
-     * 切分方式：段落切分
-     */
-    private static final String SPLITTER_PARAGRAPH = "paragraph";
-    /**
-     * 切分方式：句子切分
-     */
-    private static final String SPLITTER_SENTENCE = "sentence";
-    /**
-     * 切分方式：按行切分
-     */
-    private static final String SPLITTER_LINE = "line";
-    /**
-     * 切分方式：语义切分
-     */
-    private static final String SPLITTER_SEMANTIC = "semantic";
-
-    /**
-     * 语义/递归切分的单块最大字符数（约 800 token 的中文文本）
-     */
-    private static final int MAX_CHUNK_CHARS = 3000;
+    private final SplitterStrategyRegistry splitterStrategyRegistry;
 
     @Value("${lion.upload.path:upload/}")
     private String uploadPath;
@@ -212,186 +181,16 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
     }
 
-    static class ParagraphTextSplitter extends TextSplitter {
-        @Override
-        protected List<String> splitText(String text) {
-            // 按照段落分割：两个或更多换行符为分割点
-            // \\R 匹配任意换行符，\\s* 匹配换行符周围的空白字符
-            return Arrays.asList(text.split("\\s*\\R\\s*\\R\\s*"));
-        }
-    }
-
     /**
-     * 按行切分
-     */
-    static class LineTextSplitter extends TextSplitter {
-        @Override
-        protected List<String> splitText(String text) {
-            return Arrays.stream(text.split("\\R"))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toList());
-        }
-    }
-
-    /**
-     * 按句子切分（中英文标点断句）
-     */
-    static class SentenceTextSplitter extends TextSplitter {
-        private static final Pattern SENTENCE_SPLIT = Pattern.compile("(?<=[。！？!?.；;])\\s*");
-
-        @Override
-        protected List<String> splitText(String text) {
-            return Arrays.stream(SENTENCE_SPLIT.split(text))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toList());
-        }
-    }
-
-    /**
-     * 递归切分：按 段落 → 句子 → 短句（逗号/分号）→ 空白 的优先级切分，
-     * 每块控制在 {@code maxChunkChars} 字符以内
-     */
-    static class RecursiveTextSplitter extends TextSplitter {
-        private static final List<Pattern> SEPARATORS = List.of(
-                Pattern.compile("\\R{2,}"),               // 空行（段落）
-                Pattern.compile("(?<=[。！？!?.；;])\\s*"), // 句子
-                Pattern.compile("(?<=[，、；;,])\\s*"),     // 短句
-                Pattern.compile("(?<=\\s)")                // 空白
-        );
-
-        private final int maxChunkChars;
-
-        RecursiveTextSplitter(int maxChunkChars) {
-            this.maxChunkChars = maxChunkChars;
-        }
-
-        @Override
-        protected List<String> splitText(String text) {
-            List<String> chunks = new ArrayList<>();
-            recursiveSplit(text, 0, chunks);
-            return chunks;
-        }
-
-        private void recursiveSplit(String text, int level, List<String> chunks) {
-            String trimmed = text.trim();
-            if (trimmed.isEmpty()) {
-                return;
-            }
-            if (trimmed.length() <= maxChunkChars || level >= SEPARATORS.size()) {
-                chunks.add(trimmed);
-                return;
-            }
-            List<String> parts = Arrays.stream(SEPARATORS.get(level).split(trimmed))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toList());
-            if (parts.size() <= 1) {
-                // 该层级没有可切分的点，进入下一优先级
-                recursiveSplit(trimmed, level + 1, chunks);
-                return;
-            }
-            for (String part : parts) {
-                recursiveSplit(part, level, chunks);
-            }
-        }
-    }
-
-    /**
-     * 语义切分：先按句子切，再通过 embedding 计算相邻句相似度，
-     * 在语义断裂处（相似度低于阈值）切分，保证块内语义连贯
-     */
-    static class SemanticTextSplitter extends TextSplitter {
-        private static final Pattern SENTENCE_SPLIT = Pattern.compile("(?<=[。！？!?.；;])\\s*");
-
-        private final EmbeddingModel embeddingModel;
-        private final double similarityThreshold;
-        private final int maxChunkChars;
-
-        SemanticTextSplitter(EmbeddingModel embeddingModel, double similarityThreshold, int maxChunkChars) {
-            this.embeddingModel = embeddingModel;
-            this.similarityThreshold = similarityThreshold;
-            this.maxChunkChars = maxChunkChars;
-        }
-
-        @Override
-        protected List<String> splitText(String text) {
-            List<String> sentences = Arrays.stream(SENTENCE_SPLIT.split(text))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toList());
-            if (sentences.isEmpty()) {
-                return List.of();
-            }
-            if (sentences.size() == 1) {
-                return sentences;
-            }
-
-            // 批量向量化（DashScope embedding 单次批量上限 10 条，分批调用）
-            final int batchSize = 10;
-            List<float[]> vectors = new ArrayList<>(sentences.size());
-            for (int i = 0; i < sentences.size(); i += batchSize) {
-                List<String> batch = sentences.subList(i, Math.min(i + batchSize, sentences.size()));
-                vectors.addAll(embeddingModel.embed(batch));
-            }
-
-            List<String> chunks = new ArrayList<>();
-            StringBuilder current = new StringBuilder();
-            for (int i = 0; i < sentences.size(); i++) {
-                // 超长强制切分，避免单块过大
-                if (current.length() > 0 && current.length() + sentences.get(i).length() > maxChunkChars) {
-                    chunks.add(current.toString().trim());
-                    current.setLength(0);
-                }
-                current.append(sentences.get(i));
-                // 与下一句相似度过低 → 语义边界，切分
-                if (i + 1 < sentences.size()
-                        && cosineSimilarity(vectors.get(i), vectors.get(i + 1)) < similarityThreshold) {
-                    chunks.add(current.toString().trim());
-                    current.setLength(0);
-                }
-            }
-            if (current.length() > 0) {
-                chunks.add(current.toString().trim());
-            }
-            return chunks;
-        }
-
-        private static float cosineSimilarity(float[] a, float[] b) {
-            double dot = 0, normA = 0, normB = 0;
-            for (int i = 0; i < a.length; i++) {
-                dot += a[i] * b[i];
-                normA += a[i] * a[i];
-                normB += b[i] * b[i];
-            }
-            if (normA == 0 || normB == 0) {
-                return 0f;
-            }
-            return (float) (dot / (Math.sqrt(normA) * Math.sqrt(normB)));
-        }
-    }
-
-    /**
-     * 根据切分方式创建对应的切分器并执行分片
+     * 根据切分方式选择对应策略执行分片：策略由 {@link SplitterStrategyRegistry} 按 type 分发，
+     * 新增切分方式只需新增一个 {@link DocumentSplitterStrategy} 实现类并声明 type()，
+     * 无需改动本方法
      */
     private List<Document> splitByStrategy(String splitter, List<Document> parsedDocs) {
         if (!StringUtils.hasText(splitter)) {
-            splitter = SPLITTER_TOKEN;
+            splitter = SplitterType.TOKEN.getValue();
         }
-        return switch (splitter) {
-            case SPLITTER_TOKEN -> TokenTextSplitter.builder()
-                    .withChunkSize(800)
-                    .withMinChunkLengthToEmbed(50)
-                    .build()
-                    .split(parsedDocs);
-            case SPLITTER_PARAGRAPH -> new ParagraphTextSplitter().split(parsedDocs);
-            case SPLITTER_LINE -> new LineTextSplitter().split(parsedDocs);
-            case SPLITTER_SENTENCE -> new SentenceTextSplitter().split(parsedDocs);
-            case SPLITTER_RECURSIVE -> new RecursiveTextSplitter(MAX_CHUNK_CHARS).split(parsedDocs);
-            case SPLITTER_SEMANTIC -> new SemanticTextSplitter(embeddingModel, 0.7, MAX_CHUNK_CHARS).split(parsedDocs);
-            default -> throw new BusinessException("不支持的切分方式：" + splitter);
-        };
+        return splitterStrategyRegistry.get(splitter).split(parsedDocs);
     }
 
 

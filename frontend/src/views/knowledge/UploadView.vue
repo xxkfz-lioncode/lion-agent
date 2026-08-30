@@ -16,17 +16,17 @@
           </select>
         </div>
 
-        <div class="form-item">
+        <div class="form-item splitter-item">
           <label>切分方式</label>
           <select v-model="splitter" class="form-select">
-            <option value="token">Token 切分（默认）</option>
-            <option value="recursive">递归切分（保留语义边界）</option>
-            <option value="paragraph">段落切分</option>
-            <option value="sentence">句子切分</option>
-            <option value="line">按行切分</option>
-            <option value="semantic">语义切分（较慢，适合长文）</option>
+            <option value="token" title="按 Token 数量切分（默认策略），块大小可控，适合大多数通用文档">Token 切分（默认）</option>
+            <option value="recursive" title="按 段落 → 句子 → 短句 → 空白 多级递归切分，尽量保留语义边界">递归切分（保留语义边界）</option>
+            <option value="paragraph" title="以连续空行（段落边界）为切分点，适合段落结构清晰的文档">段落切分</option>
+            <option value="sentence" title="以中英文句末标点为边界切分，适合需要细粒度检索的场景">句子切分</option>
+            <option value="line" title="以换行为边界，适合日志、列表、代码等结构化文本">按行切分</option>
+            <option value="semantic" title="基于 embedding 计算相邻句语义相似度，在语义断裂处切分；需要调用向量模型，较慢，适合长文">语义切分（较慢，适合长文）</option>
           </select>
-          <p class="upload-hint">Token 切分按词元数切块；递归切分按段落/句子/短句优先级切块；语义切分通过向量相似度在语义断裂处切块</p>
+          <p class="upload-hint">鼠标悬浮在选项上查看详细说明；默认 Token 切分兼顾性能与通用性</p>
         </div>
 
         <div class="form-item">
@@ -343,6 +343,14 @@ function statusClass(status) {
   font-size: 12px;
   color: var(--text-sub);
   margin-top: 8px;
+}
+
+.form-select option {
+  padding: 4px 8px;
+}
+
+.splitter-item .form-select option:hover {
+  cursor: help;
 }
 
 .submit-btn {

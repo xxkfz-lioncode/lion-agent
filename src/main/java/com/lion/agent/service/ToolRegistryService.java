@@ -89,6 +89,9 @@ public class ToolRegistryService {
 
     private final CircuitBreakerRegistry circuitBreakerRegistry;
 
+    /** 自定义技能注册中心：用户页面维护的提示词型技能，检索命中后并入候选池 */
+    private final SkillToolRegistry skillToolRegistry;
+
     public final ToolCallback weatherTool;
     public final ToolCallback holidayCountdownTool;
 
@@ -185,9 +188,17 @@ public class ToolRegistryService {
                     selected.add(cb);
                 }
             }
-            log.info("工具筛选：常驻 {} + 检索命中 {}（query 相关工具：{}）",
-                    alwaysOnCallbacks.size(), selected.size() - alwaysOnCallbacks.size(),
-                    hits.stream().map(d -> toolNameOf(d.getId())).collect(Collectors.toList()));
+            // 自定义技能：独立向量索引（type=skill_index + userId 精确过滤，用户间不串权限），
+            // 内部自带失败降级（无技能返回空、向量挂了返回当前用户技能全量）
+            List<ToolCallback> skillCallbacks = skillToolRegistry.search(query, userId);
+            selected.addAll(skillCallbacks);
+            log.info("工具筛选结果：常驻 {} 个{}，向量命中 {} 个{}，技能命中 {} 个{}",
+                    alwaysOnCallbacks.size(),
+                    alwaysOnCallbacks.stream().map(cb -> cb.getToolDefinition().name()).collect(Collectors.toList()),
+                    hits.size(),
+                    hits.stream().map(d -> toolNameOf(d.getId())).collect(Collectors.toList()),
+                    skillCallbacks.size(),
+                    skillCallbacks.stream().map(cb -> cb.getToolDefinition().name()).collect(Collectors.toList()));
         } catch (Exception e) {
             // 降级：Milvus 不可用时返回"常驻 + 权限内的全部可检索工具"
             // 筛选是优化不是功能，挂了最多多花点 token，不能因此让 Agent 没工具可用

@@ -146,6 +146,7 @@ const menuTree = [
     ]
   },
   { key: 'memory', path: '/memory', title: '长期记忆', icon: '🧠' },
+  { key: 'skill', path: '/skill/manage', title: '技能管理', icon: '🧩' },
   { key: 'usage', path: '/usage', title: '用量统计', icon: '📊' }
 ]
 
