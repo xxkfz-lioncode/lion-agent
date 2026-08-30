@@ -51,17 +51,14 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- ==================== Redis ==================== -->
+        <!-- ==================== Redis：Redisson（Spring Boot 4 适配版） ==================== -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-pool2</artifactId>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson-spring-boot-starter</artifactId>
+            <version>4.7.0</version>
         </dependency>
 
-        <!-- ==================== Sa-Token（Spring Boot 4 适配版）+ Redis 持久化 ==================== -->
+        <!-- ==================== Sa-Token（Spring Boot 4 适配版）+ Redisson 会话持久化 ==================== -->
         <dependency>
             <groupId>cn.dev33</groupId>
             <artifactId>sa-token-spring-boot4-starter</artifactId>
@@ -69,7 +66,7 @@
         </dependency>
         <dependency>
             <groupId>cn.dev33</groupId>
-            <artifactId>sa-token-redis-jackson</artifactId>
+            <artifactId>sa-token-redisson-spring-boot-starter</artifactId>
             <version>${sa-token.version}</version>
         </dependency>
 

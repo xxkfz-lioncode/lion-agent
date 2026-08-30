@@ -110,6 +110,7 @@ public class KnowledgeChatServiceImpl {
                 .user(prompt)
                 // 注入用户 ID / 会话类型到上下文，供 TokenUsageAdvisor 统计 token 用量时读取
                 .advisors(a -> a
+                        .param(AdvisorConstants.CONVERSATION_ID_KEY,userId)
                         .param(AdvisorConstants.USER_ID_KEY, userId)
                         .param(AdvisorConstants.CHAT_TYPE_KEY, "kb"))
                 .call()
@@ -118,9 +119,6 @@ public class KnowledgeChatServiceImpl {
         KnowledgeChatResult result = new KnowledgeChatResult();
         result.setAnswer(answer);
         result.setReferencedChunks(toChunks(reranked));
-
-        // 8. 异步抽取并落库长期记忆（走 memoryExecutor 线程池，不阻塞响应；失败仅告警）
-        memoryService.extractAndStoreAsync(userId, null, question, answer);
         return result;
     }
 

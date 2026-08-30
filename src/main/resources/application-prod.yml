@@ -10,7 +10,7 @@ spring:
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:}
 
-  # ==================== Redis ====================
+  # ==================== Redis：Redisson（读取 spring.data.redis 自动构建连接，连接池由 Redisson 自管） ====================
   data:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
@@ -18,11 +18,6 @@ spring:
       database: 0
       password: ${REDIS_PASSWORD:}
       timeout: 10s
-      lettuce:
-        pool:
-          max-active: 8
-          max-idle: 8
-          min-idle: 0
 
   # ==================== Spring AI：接入千问（DashScope OpenAI 兼容接口） ====================
   ai:

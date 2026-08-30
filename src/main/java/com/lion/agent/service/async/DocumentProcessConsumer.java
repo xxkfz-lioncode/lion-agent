@@ -5,11 +5,13 @@ import com.lion.agent.common.async.RedisTaskQueue;
 import com.lion.agent.dto.DocumentProcessTask;
 import com.lion.agent.service.KnowledgeDocumentService;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 知识库文档异步处理消费者
@@ -32,17 +34,17 @@ public class DocumentProcessConsumer extends AbstractRedisTaskConsumer<DocumentP
 
     private final KnowledgeDocumentService documentService;
     private final RedisTaskQueue taskQueue;
-    private final StringRedisTemplate redisTemplate;
+    private final RedissonClient redissonClient;
 
     @Value("${lion.async.max-retry:3}")
     private int maxRetry;
 
     public DocumentProcessConsumer(KnowledgeDocumentService documentService, RedisTaskQueue taskQueue,
-                                   StringRedisTemplate redisTemplate) {
+                                   RedissonClient redissonClient) {
         super(taskQueue, DocumentProcessTask.class);
         this.documentService = documentService;
         this.taskQueue = taskQueue;
-        this.redisTemplate = redisTemplate;
+        this.redissonClient = redissonClient;
     }
 
     @Override
@@ -56,10 +58,17 @@ public class DocumentProcessConsumer extends AbstractRedisTaskConsumer<DocumentP
             log.warn("[DocTask] 任务缺少 docId，丢弃 task={}", task);
             return;
         }
-        // 幂等锁：拿到锁才处理，防止同一文档重复入队/并发处理
-        Boolean locked = redisTemplate.opsForValue()
-                .setIfAbsent(LOCK_KEY_PREFIX + task.getDocId(), "1", LOCK_TTL);
-        if (!Boolean.TRUE.equals(locked)) {
+        // 幂等锁：Redisson 分布式锁，拿不到锁说明已有消费者在处理，直接跳过
+        RLock lock = redissonClient.getLock(LOCK_KEY_PREFIX + task.getDocId());
+        boolean locked;
+        try {
+            // waitTime=0：拿不到锁立即返回 false；leaseTime=30min：等价原 SETNX TTL，防止持有方宕机造成死锁
+            locked = lock.tryLock(0, LOCK_TTL.toSeconds(), TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.error("[DocTask] 获取处理锁失败 docId={}", task.getDocId(), e);
+            return;
+        }
+        if (!locked) {
             log.info("[DocTask] 文档处理中（已有消费者在处理），跳过 docId={}", task.getDocId());
             return;
         }
@@ -77,7 +86,14 @@ public class DocumentProcessConsumer extends AbstractRedisTaskConsumer<DocumentP
                 log.error("[DocTask] 文档处理失败且超过最大重试次数 docId={}", task.getDocId(), e);
             }
         } finally {
-            redisTemplate.delete(LOCK_KEY_PREFIX + task.getDocId());
+            // 仅在确实持有锁时释放；锁已过期被自动释放时忽略异常，避免误报
+            if (locked) {
+                try {
+                    lock.unlock();
+                } catch (Exception e) {
+                    log.warn("[DocTask] 释放处理锁异常 docId={}", task.getDocId(), e);
+                }
+            }
         }
     }
 }
