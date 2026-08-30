@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lion.agent.common.PageResult;
 import com.lion.agent.common.constants.AdvisorConstants;
+import com.lion.agent.common.enums.ChatIntent;
 import com.lion.agent.dto.ChatRequest;
 import com.lion.agent.entity.ChatMessage;
 import com.lion.agent.entity.Conversation;
@@ -15,6 +16,8 @@ import com.lion.agent.mapper.ConversationMapper;
 import com.lion.agent.mapper.TokenUsageMapper;
 import com.lion.agent.service.ChatService;
 import com.lion.agent.config.PromptConfig;
+import com.lion.agent.service.IntentRecognitionService;
+import com.lion.agent.service.KnowledgeRetrievalService;
 import com.lion.agent.service.MemoryService;
 import com.lion.agent.service.ToolRegistryService;
 import com.lion.agent.vo.ChatResult;
@@ -66,6 +69,10 @@ public class ChatServiceImpl implements ChatService {
     private final PromptConfig promptConfig;
     /** 长期记忆服务（对话完成后异步抽取用户事实/偏好落库） */
     private final MemoryService memoryService;
+    /** 意图识别服务（统一入口路由前置：一般对话 / 知识库问答） */
+    private final IntentRecognitionService intentRecognitionService;
+    /** 知识库检索服务（高级 RAG 流水线：改写/多路召回/RRF/Rerank/门控） */
+    private final KnowledgeRetrievalService knowledgeRetrievalService;
     /** 上传文件根目录（相对工作目录），多模态图片保存于 {uploadPath}/multimodal/yyyy/MM/dd/ 下 */
     @Value("${lion.upload.path:upload/}")
     private String uploadPath;
@@ -93,9 +100,29 @@ public class ChatServiceImpl implements ChatService {
         chatMessageMapper.insert(userMessage);
 
 
-        // 3. 调用千问大模型（携带会话记忆）；语义缓存命中时由全局 QaCacheAdvisor 短路，
-        //    直接返回历史回答并回写会话记忆，此处无需感知命中与否
-        String reply = callQwen(request.getMessage(), conversationId);
+        // 3. 意图路由：先识别意图（一般对话 / 知识库问答），再调用对应链路
+        ChatIntent intent = intentRecognitionService.classify(userId, request.getMessage(), request.getKnowledgeId());
+
+        String reply;
+        List<String> referencedChunks = null;
+        if (intent == ChatIntent.KNOWLEDGE) {
+            // 知识库链路：高级 RAG 检索（改写/多路召回/RRF/Rerank/门控）
+            KnowledgeRetrievalService.RetrievalResult result =
+                    knowledgeRetrievalService.retrieve(userId, request.getMessage(), request.getKnowledgeId());
+            if (!result.qualified()) {
+                // 门控拦截：资料不足，直接返回提示，不浪费主模型调用
+                reply = "抱歉，当前知识库中的资料不足以回答该问题。"
+                        + (StringUtils.hasText(result.reason()) ? " 缺失信息：" + result.reason() : "");
+            } else {
+                // 检索通过：kb-answer 模板渲染（上下文 + 问题），chatType=kb
+                String prompt = promptConfig.renderKbAnswer(result.context(), request.getMessage());
+                reply = callQwen(prompt, conversationId, "kb");
+            }
+            referencedChunks = result.chunks();
+        } else {
+            // 一般对话：原链路（带记忆/工具/缓存等全局 Advisor）
+            reply = callQwen(request.getMessage(), conversationId, "chat");
+        }
 
 
         // 4. 保存 AI 回复
@@ -117,6 +144,7 @@ public class ChatServiceImpl implements ChatService {
                 .userMessageId(userMessage.getId())
                 .assistantMessageId(assistantMessage.getId())
                 .reply(reply)
+                .referencedChunks(referencedChunks)
                 .build();
     }
 
@@ -206,11 +234,26 @@ public class ChatServiceImpl implements ChatService {
             return emitter;
         }
 
-        // 同步调用千问（含工具调用，工具由 ToolRegistryService 按需筛选）；
+        // 意图路由 + 同步调用千问（含工具调用，工具由 ToolRegistryService 按需筛选）；
         // 语义缓存命中时由全局 QaCacheAdvisor 短路，直接返回历史回答
         String reply;
+        List<String> referencedChunks = null;
         try {
-            reply = callQwen(request.getMessage(), finalConversationId);
+            ChatIntent intent = intentRecognitionService.classify(userId, request.getMessage(), request.getKnowledgeId());
+            if (intent == ChatIntent.KNOWLEDGE) {
+                KnowledgeRetrievalService.RetrievalResult result =
+                        knowledgeRetrievalService.retrieve(userId, request.getMessage(), request.getKnowledgeId());
+                if (!result.qualified()) {
+                    reply = "抱歉，当前知识库中的资料不足以回答该问题。"
+                            + (StringUtils.hasText(result.reason()) ? " 缺失信息：" + result.reason() : "");
+                } else {
+                    String prompt = promptConfig.renderKbAnswer(result.context(), request.getMessage());
+                    reply = callQwen(prompt, finalConversationId, "kb");
+                }
+                referencedChunks = result.chunks();
+            } else {
+                reply = callQwen(request.getMessage(), finalConversationId, "chat");
+            }
         } catch (Exception e) {
             log.error("调用千问大模型失败", e);
             throw new BusinessException("AI 服务调用失败，请稍后重试");
@@ -225,7 +268,9 @@ public class ChatServiceImpl implements ChatService {
             memoryService.extractAndStoreAsync(userId, finalConversationId, request.getMessage(), reply);
             // 一次性推送完整回复 + done，并关闭连接，前端恢复输入
             emitter.send(SseEmitter.event().name("message").data(Map.of("content", reply)));
-            emitter.send(SseEmitter.event().name("done").data(Map.of("reply", reply)));
+            emitter.send(SseEmitter.event().name("done").data(Map.of(
+                    "reply", reply,
+                    "referencedChunks", referencedChunks == null ? List.of() : referencedChunks)));
             emitter.complete();
         } catch (Exception e) {
             log.error("SSE 完成处理失败", e);
@@ -339,8 +384,9 @@ public class ChatServiceImpl implements ChatService {
      *
      * @param message        用户消息
      * @param conversationId 会话 ID，用于按会话保存/加载多轮记忆
+     * @param chatType       会话类型（chat-一般对话 / kb-知识库问答），供 TokenUsageAdvisor 落库区分
      */
-    private String callQwen(String message, Long conversationId) {
+    private String callQwen(String message, Long conversationId, String chatType) {
         log.info("开始请求LLM大模型（文本）......");
         long userId = StpUtil.getLoginIdAsLong();
         try {
@@ -352,7 +398,7 @@ public class ChatServiceImpl implements ChatService {
                     .advisors(a -> a
                             .param(ChatMemory.CONVERSATION_ID, conversationId)
                             .param(AdvisorConstants.USER_ID_KEY, userId)
-                            .param(AdvisorConstants.CHAT_TYPE_KEY, "chat"))
+                            .param(AdvisorConstants.CHAT_TYPE_KEY, chatType))
                     // 工具按需注册：常驻（UserTools）+ 向量预筛（StarFortuneTools 等），见 ToolRegistryService
                     .tools(toolRegistryService.selectTools(message, userId));
             // 同步调用：工具调用由 Spring AI 自动处理（执行工具后再递归调用模型），返回最终文本

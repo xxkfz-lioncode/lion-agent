@@ -259,30 +259,35 @@ MILVUS_PORT=19530
 | `line` | 按行切（trim 空行） | 块最小 | 代码、清单类 |
 | `semantic` | 先断句 → embedding 计算相邻句相似度 → 在语义断裂处（低于阈值）切分 | 块内语义连贯，检索质量最高 | 长文、专业资料（embedding 成本高） |
 
-#### 2.3 检索问答（Advanced RAG 流水线）
+#### 2.3 统一对话入口 + 意图识别（Advanced RAG 流水线）
 
-`POST /api/knowledge/chat`，实现于 `KnowledgeChatServiceImpl`：
+一般对话与知识库问答统一走 `POST /api/chat/send` / `/api/chat/stream`（请求可带可选 `knowledgeId`，不传则检索用户全部知识库）：
 
 ```
-用户问题
-  → ① 语义改写：LLM 将口语化问题改写为检索友好查询（失败回退原文）
-  → ② 扩容多路检索：原问题 + 改写问题各召回 TopK=20（filter: knowledgeId == xxx，扩大候选池）
-  → ③ RRF 融合 + 粗筛：两路按 RRF 分数（1/(60+rank)）去重排序，保留前 10
-  → ④ Rerank：LLM 按相关性打分（0-100）重排，取前 5（可替换为专用 Rerank API）
-  → ⑤ 复评门控：LLM 判断资料是否足以作答；不足 → 降级返回「资料不足 + 缺失原因」
+用户问题（+ 可选 knowledgeId）
+  → ① 意图分类：显式 LLM 分类（GENERAL / KNOWLEDGE）
+       - 指定了 knowledgeId → 直接 KNOWLEDGE
+       - 用户没有任何知识库 → 直接 GENERAL
+       - 否则裸 ChatModel 按模板分类（失败降级 GENERAL）
+  → ② 语义改写：LLM 将口语化问题改写为检索友好查询（失败回退原文）
+  → ③ 扩容多路检索：原问题 + 改写问题各召回 TopK=20（扩大候选池）
+  → ④ RRF 融合 + 粗筛：两路按 RRF 分数（1/(60+rank)）去重排序，保留前 10
+  → ⑤ Rerank：LLM 按相关性打分（0-100）重排，取前 5（可替换为专用 Rerank API）
+  → ⑥ 复评门控：LLM 判断资料是否足以作答；不足 → 降级返回「资料不足 + 缺失原因」
        （省掉一次主模型调用，防幻觉）
-  → ⑥ 构造上下文 + prompt（引用片段拼接）
-  → ⑦ 走全局 ChatClient 作答（带记忆 / 工具 / 语义缓存等 Advisor）→ answer + referencedChunks
+  → ⑦ 构造上下文 + prompt（引用片段拼接）
+  → ⑧ 走全局 ChatClient 作答（带记忆 / 工具 / 语义缓存等 Advisor）→ answer + referencedChunks
 ```
 
 设计要点：
 
+- **意图识别路由**：`IntentRecognitionService` 三步分类（显式指定 → 无知识库 → LLM 分类），意图为 GENERAL 时完全不触发检索，保持普通对话的响应速度；
 - **recall 扩容**：原问题 + 改写问题各取 TopK=20，两路合并扩大候选池，靠后置重排保证 precision；
 - **RRF 融合**：两路结果按 Reciprocal Rank Fusion 加权去重，缓解单路召回偏差；
 - **LLM Rerank 精挑**：Top10 → Top5，替代一次性小 TopK 的精度损失；
 - **门控兜底**：资料明显不足时不再调用主模型，直接返回缺失信息，降低幻觉率；
-- **辅助调用与主链路隔离**：改写 / 重排 / 门控使用**无 Advisor 的裸 `ChatModel`**，避免经过全局 ChatClient 触发语义缓存、会话记忆等 Advisor（污染缓存、误耗 token）；
-- **知识库隔离**：所有检索带 `filterExpression: knowledgeId == xxx`，多知识库互不干扰；
+- **辅助调用与主链路隔离**：意图分类 / 改写 / 重排 / 门控使用**无 Advisor 的裸 `ChatModel`**，避免经过全局 ChatClient 触发语义缓存、会话记忆等 Advisor（污染缓存、误耗 token）；
+- **知识库隔离**：指定知识库时检索带 `filterExpression: knowledgeId == xxx`；不指定则 `knowledgeId in (...)` 检索用户全部知识库；
 - **引用溯源**：回答同时返回 `referencedChunks` 引用片段列表，前端可展示来源。
 
 ### 3. 工具注册与筛选（三层收敛，RAG of Tools）
@@ -313,8 +318,8 @@ MCP：本服务内置 streamable-http Server（`/mcp`），同时可作为 SSE C
 ### 对话 `/api/chat`
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/api/chat/send` | 发送消息（`conversationId` 为空自动建会话） |
-| POST | `/api/chat/stream` | SSE 流式返回（事件：start / message / done） |
+| POST | `/api/chat/send` | 发送消息（`conversationId` 为空自动建会话，可选 `knowledgeId` 指定知识库） |
+| POST | `/api/chat/stream` | SSE 流式返回（事件：start / message / done；可选 `knowledgeId`） |
 | POST | `/api/chat/multimodal` | 多模态，`multipart/form-data`：`message`、`conversationId`、`images`(多文件)、`imageUrls`(多 URL) |
 
 ### 会话 `/api/conversations`
@@ -333,7 +338,6 @@ MCP：本服务内置 streamable-http Server（`/mcp`），同时可作为 SSE C
 | POST | `/api/knowledge` | 创建知识库 |
 | PUT | `/api/knowledge/{id}` | 修改知识库 |
 | DELETE | `/api/knowledge/{id}` | 删除知识库 |
-| POST | `/api/knowledge/chat` | 知识库问答（RAG：检索相关片段作为上下文） |
 | GET | `/api/knowledge/{knowledgeId}/documents` | 文档列表（轮询 `status` 感知异步处理结果） |
 | POST | `/api/knowledge/{knowledgeId}/documents` | 上传文档（`file` + `splitter`，异步处理秒回） |
 | DELETE | `/api/knowledge/{knowledgeId}/documents/{docId}` | 删除文档 |
@@ -355,13 +359,13 @@ lion-agent/
 │   ├── advisor/            # Advisor 链：TokenUsage / ConversationSummary / QaCache
 │   ├── common/             # Result、PageResult、异步队列组件（async/）
 │   ├── config/             # AiConfig、SaTokenConfig 等
-│   ├── controller/         # 认证 / 对话 / 会话 / 知识库 / 文档 / 知识库问答
+│   ├── controller/         # 认证 / 对话 / 会话 / 知识库 / 文档
 │   ├── dto/                # 请求体与任务消息（DocumentProcessTask）
 │   ├── entity/             # 实体（User / Conversation / ChatMessage / ConversationSummary ...）
 │   ├── exception/          # 全局异常
 │   ├── mapper/             # MyBatis-Plus Mapper
 │   ├── service/
-│   │   ├── impl/           # 业务实现（Chat / KnowledgeDocument / KnowledgeChat ...）
+│   │   ├── impl/           # 业务实现（Chat / KnowledgeDocument / KnowledgeRetrieval ...）
 │   │   └── async/          # DocumentProcessConsumer（Redis 任务消费者）
 │   ├── tools/              # UserTools（常驻）、StarFortuneTools（星座）、mcptool/（MCP 工具）
 │   └── vo/                 # 返回视图对象

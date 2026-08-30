@@ -135,15 +135,14 @@ const isCollapsed = ref(false)
 const openedGroups = ref(['knowledge'])
 
 const menuTree = [
-  { key: 'chat', path: '/chat', title: '常规对话', icon: '💬' },
+  { key: 'chat', path: '/chat', title: '对话', icon: '💬' },
   {
     key: 'knowledge',
     title: '知识库',
     icon: '📚',
     children: [
       { path: '/knowledge/manage', title: '知识库管理', icon: '🛠️' },
-      { path: '/knowledge/upload', title: '知识库上传', icon: '📤' },
-      { path: '/knowledge/chat', title: '知识库问答', icon: '🔍' }
+      { path: '/knowledge/upload', title: '知识库上传', icon: '📤' }
     ]
   },
   { key: 'memory', path: '/memory', title: '长期记忆', icon: '🧠' },

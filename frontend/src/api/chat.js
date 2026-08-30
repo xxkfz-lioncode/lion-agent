@@ -10,11 +10,12 @@ export function sendMessage(data) {
  * @param {Object} params
  * @param {number|null} params.conversationId 会话 ID
  * @param {string} params.message 用户消息
+ * @param {number|null} [params.knowledgeId] 可选：指定知识库（不传则检索用户全部知识库）
  * @param {Function} [params.onStart] 收到 start 事件（含 conversationId）
  * @param {Function} [params.onMessage] 收到内容片段 { content }
- * @param {Function} [params.onDone] 收到 done 事件（含 assistantMessageId）
+ * @param {Function} [params.onDone] 收到 done 事件（含 assistantMessageId、referencedChunks）
  */
-export async function streamChat({ conversationId, message, onStart, onMessage, onDone }) {
+export async function streamChat({ conversationId, message, knowledgeId, onStart, onMessage, onDone }) {
   const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
   const token = localStorage.getItem('token') || ''
   const res = await fetch(`${baseURL}/chat/stream`, {
@@ -23,7 +24,7 @@ export async function streamChat({ conversationId, message, onStart, onMessage, 
       'Content-Type': 'application/json',
       Authorization: token
     },
-    body: JSON.stringify({ conversationId, message })
+    body: JSON.stringify({ conversationId, message, knowledgeId })
   })
   if (!res.ok || !res.body) {
     throw new Error(`请求失败（HTTP ${res.status}）`)

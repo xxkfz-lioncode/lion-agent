@@ -65,6 +65,21 @@
 
     <!-- 右侧聊天区 -->
     <div class="chat-page">
+      <!-- 顶部工具栏：知识库选择 -->
+      <div class="chat-toolbar">
+        <div class="kb-selector">
+          <span class="kb-label">📚 知识库</span>
+          <select v-model="selectedKnowledgeId" class="kb-select" :disabled="loading">
+            <option :value="null">全部知识库</option>
+            <option v-for="kb in knowledgeBases" :key="kb.id" :value="kb.id">
+              {{ kb.name }}
+            </option>
+          </select>
+          <span v-if="selectedKnowledgeId" class="kb-hint">仅检索所选知识库</span>
+          <span v-else class="kb-hint">自动检索你的全部知识库</span>
+        </div>
+      </div>
+
       <!-- 消息列表 -->
       <div ref="messageList" class="message-list">
         <div
@@ -84,6 +99,10 @@
                 <span class="typing-dot"></span>
               </div>
               <div v-if="thinkingElapsed > 0" class="typing-elapsed">已思考 {{ thinkingElapsed }}s</div>
+            </div>
+            <div v-if="msg.referencedChunks && msg.referencedChunks.length" class="reference-box">
+              <div class="reference-title">📎 引用来源（{{ msg.referencedChunks.length }}）</div>
+              <div v-for="(chunk, i) in msg.referencedChunks" :key="i" class="reference-item">{{ chunk }}</div>
             </div>
           </div>
         </div>
@@ -132,6 +151,7 @@ import { ref, nextTick, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import { streamChat, listMessages, listConversations, deleteConversation, clearAllConversations, renameConversation } from '../api/chat'
+import { listKnowledge } from '../api/knowledge'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import InputDialog from '../components/InputDialog.vue'
 import PaginationBar from '../components/PaginationBar.vue'
@@ -145,6 +165,8 @@ const currentMessages = ref([
 ])
 
 const conversationId = ref(route.query.id ? Number(route.query.id) : null)
+const knowledgeBases = ref([])
+const selectedKnowledgeId = ref(null)
 const conversations = ref([])
 const deletingConv = ref(false)
 const deletingConvId = ref(null)
@@ -187,11 +209,20 @@ watch(() => route.query.id, (id) => {
 })
 
 onMounted(async () => {
-  await loadConversations()
+  await Promise.all([loadConversations(), loadKnowledgeBases()])
   if (conversationId.value) {
     await loadMessages(conversationId.value)
   }
 })
+
+async function loadKnowledgeBases() {
+  try {
+    const res = await listKnowledge({ pageNum: 1, pageSize: 100 })
+    knowledgeBases.value = res.list || []
+  } catch (e) {
+    console.error('加载知识库列表失败', e)
+  }
+}
 
 async function loadConversations() {
   try {
@@ -229,7 +260,8 @@ async function loadMessages(id) {
       currentMessages.value = res.list.map(item => ({
         id: item.id,
         role: item.role === 'user' ? 'user' : 'ai',
-        content: item.content
+        content: item.content,
+        referencedChunks: item.referencedChunks || null
       }))
     } else {
       currentMessages.value = [
@@ -404,6 +436,7 @@ async function send() {
     await streamChat({
       conversationId: conversationId.value,
       message: content,
+      knowledgeId: selectedKnowledgeId.value,
       onStart: (payload) => {
         conversationId.value = payload.conversationId
       },
@@ -412,10 +445,15 @@ async function send() {
         if (msg) msg.content += payload.content || ''
         scrollToBottom()
       },
-      onDone: async () => {
+      onDone: async (payload) => {
         const msg = currentMessages.value.find(m => m.id === aiMsgId)
-        if (msg && !msg.content) {
-          msg.content = '抱歉，我没有获取到回复，请稍后再试。'
+        if (msg) {
+          if (payload && payload.referencedChunks && payload.referencedChunks.length) {
+            msg.referencedChunks = payload.referencedChunks
+          }
+          if (!msg.content) {
+            msg.content = '抱歉，我没有获取到回复，请稍后再试。'
+          }
         }
         await loadConversations()
       }
@@ -593,9 +631,53 @@ async function send() {
   height: 48px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  gap: 12px;
   padding: 0 24px;
   border-bottom: 1px solid var(--border);
+}
+
+.kb-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.kb-label {
+  color: var(--text-main);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.kb-select {
+  height: 30px;
+  min-width: 160px;
+  max-width: 240px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text-main);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.kb-select:focus {
+  border-color: var(--primary);
+}
+
+.kb-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.kb-hint {
+  color: var(--text-weak);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .chat-header {
@@ -707,6 +789,43 @@ async function send() {
 
 .typing-dot:nth-child(2) {
   animation-delay: 0.2s;
+}
+
+.reference-box {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 6px;
+  background: #fafbfc;
+}
+
+.message-item.user .reference-box {
+  display: none;
+}
+
+.reference-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 6px;
+}
+
+.reference-item {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-weak);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #fff;
+  border: 1px solid var(--border);
+  margin-bottom: 4px;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.reference-item:last-child {
+  margin-bottom: 0;
 }
 
 .typing-dot:nth-child(3) {

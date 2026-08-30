@@ -17,4 +17,7 @@ public class ChatRequest {
     @Schema(description = "用户输入内容", example = "你好，介绍一下你自己", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotBlank(message = "消息内容不能为空")
     private String message;
+
+    @Schema(description = "指定检索的知识库 ID（可选；不指定则由意图识别决定是否检索，检索时覆盖用户全部知识库）", example = "1")
+    private Long knowledgeId;
 }

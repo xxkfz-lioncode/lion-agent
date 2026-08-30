@@ -34,8 +34,8 @@ spring:
              # 对方的 MCP Server 地址，调用商品分析
              graph-analysis:
                url: http://localhost:8082
-             travel-planner:
-               url: http://localhost:8083
+#             travel-planner:
+#               url: http://localhost:8083
 
 
 # ==================== MyBatis-Plus（公共） ====================

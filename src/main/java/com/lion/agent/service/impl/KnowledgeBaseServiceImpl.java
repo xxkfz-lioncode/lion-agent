@@ -35,6 +35,14 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     }
 
     @Override
+    public java.util.List<KnowledgeBase> listAllByUser(Long userId) {
+        LambdaQueryWrapper<KnowledgeBase> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(KnowledgeBase::getUserId, userId)
+                .orderByDesc(KnowledgeBase::getCreatedAt);
+        return knowledgeBaseMapper.selectList(wrapper);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeBase create(Long userId, KnowledgeBaseRequest request) {
         KnowledgeBase kb = new KnowledgeBase();

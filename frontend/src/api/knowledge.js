@@ -29,7 +29,3 @@ export function uploadDocument(knowledgeId, formData) {
 export function deleteDocument(knowledgeId, docId) {
   return request.delete(`/knowledge/${knowledgeId}/documents/${docId}`)
 }
-
-export function knowledgeChat(data) {
-  return request.post('/knowledge/chat', data)
-}

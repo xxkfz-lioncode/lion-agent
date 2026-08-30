@@ -62,6 +62,10 @@ public class PromptConfig {
      */
     private static final String KB_GATE_TEMPLATE_PATH = "prompts/kb-gate.st";
     /**
+     * 意图识别模板路径（渲染变量：{knowledgeBases}/{question}）
+     */
+    private static final String INTENT_CLASSIFY_TEMPLATE_PATH = "prompts/intent-classify.st";
+    /**
      * 会话摘要压缩模板路径（渲染变量：{history}）
      */
     private static final String SUMMARY_COMPRESS_TEMPLATE_PATH = "prompts/summary-compress.st";
@@ -86,6 +90,8 @@ public class PromptConfig {
             new PromptTemplate(new ClassPathResource(KB_REWRITE_TEMPLATE_PATH));
     private static final PromptTemplate KB_GATE_TEMPLATE =
             new PromptTemplate(new ClassPathResource(KB_GATE_TEMPLATE_PATH));
+    private static final PromptTemplate INTENT_CLASSIFY_TEMPLATE =
+            new PromptTemplate(new ClassPathResource(INTENT_CLASSIFY_TEMPLATE_PATH));
     private static final PromptTemplate SUMMARY_COMPRESS_TEMPLATE =
             new PromptTemplate(new ClassPathResource(SUMMARY_COMPRESS_TEMPLATE_PATH));
     private static final PromptTemplate SUMMARY_MERGE_TEMPLATE =
@@ -150,6 +156,15 @@ public class PromptConfig {
     /** 渲染知识库复评门控提示词 */
     public String renderKbGate(String context, String query) {
         return KB_GATE_TEMPLATE.render(Map.of("context", context, "query", query));
+    }
+
+    // ==================== 意图识别 ====================
+
+    /** 渲染意图识别提示词（knowledgeBases 为「无」或知识库名称逗号分隔列表） */
+    public String renderIntentClassify(String knowledgeBases, String question) {
+        return INTENT_CLASSIFY_TEMPLATE.render(Map.of(
+                "knowledgeBases", knowledgeBases == null || knowledgeBases.isBlank() ? "无" : knowledgeBases,
+                "question", question));
     }
 
     // ==================== 会话摘要 ====================
