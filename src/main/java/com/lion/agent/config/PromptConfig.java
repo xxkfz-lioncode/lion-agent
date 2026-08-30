@@ -54,9 +54,9 @@ public class PromptConfig {
      */
     private static final String KB_ANSWER_TEMPLATE_PATH = "prompts/kb-answer.st";
     /**
-     * 知识库查询改写模板路径（渲染变量：{question}）
+     * 知识库多路查询改写模板路径（渲染变量：{question}/{count}），用于多路召回
      */
-    private static final String KB_REWRITE_TEMPLATE_PATH = "prompts/kb-rewrite.st";
+    private static final String KB_REWRITE_MULTI_TEMPLATE_PATH = "prompts/kb-rewrite-multi.st";
     /**
      * 知识库复评门控模板路径（渲染变量：{context}/{query}）
      */
@@ -86,8 +86,8 @@ public class PromptConfig {
             new PromptTemplate(new ClassPathResource(MEMORY_INJECT_TEMPLATE_PATH));
     private static final PromptTemplate KB_ANSWER_TEMPLATE =
             new PromptTemplate(new ClassPathResource(KB_ANSWER_TEMPLATE_PATH));
-    private static final PromptTemplate KB_REWRITE_TEMPLATE =
-            new PromptTemplate(new ClassPathResource(KB_REWRITE_TEMPLATE_PATH));
+    private static final PromptTemplate KB_REWRITE_MULTI_TEMPLATE =
+            new PromptTemplate(new ClassPathResource(KB_REWRITE_MULTI_TEMPLATE_PATH));
     private static final PromptTemplate KB_GATE_TEMPLATE =
             new PromptTemplate(new ClassPathResource(KB_GATE_TEMPLATE_PATH));
     private static final PromptTemplate INTENT_CLASSIFY_TEMPLATE =
@@ -147,9 +147,9 @@ public class PromptConfig {
         return KB_ANSWER_TEMPLATE.render(Map.of("context", context, "question", question));
     }
 
-    /** 渲染知识库查询改写提示词 */
-    public String renderKbRewrite(String question) {
-        return KB_REWRITE_TEMPLATE.render(Map.of("question", question));
+    /** 渲染知识库多路查询改写提示词（要求输出 {count} 种等价表达） */
+    public String renderKbRewriteMulti(String question, int count) {
+        return KB_REWRITE_MULTI_TEMPLATE.render(Map.of("question", question, "count", String.valueOf(count)));
     }
 
 

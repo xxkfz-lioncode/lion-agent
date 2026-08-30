@@ -24,6 +24,6 @@ public class ChatResult {
     @Schema(description = "AI 回复内容")
     private String reply;
 
-    @Schema(description = "知识库问答时返回的引用片段（一般对话为 null）")
-    private java.util.List<String> referencedChunks;
+    @Schema(description = "知识库问答时返回的引用来源（一般对话为 null）")
+    private java.util.List<ChunkSource> referencedChunks;
 }

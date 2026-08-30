@@ -21,6 +21,7 @@ import com.lion.agent.service.KnowledgeRetrievalService;
 import com.lion.agent.service.MemoryService;
 import com.lion.agent.service.ToolRegistryService;
 import com.lion.agent.vo.ChatResult;
+import com.lion.agent.vo.ChunkSource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -104,7 +105,7 @@ public class ChatServiceImpl implements ChatService {
         ChatIntent intent = intentRecognitionService.classify(userId, request.getMessage(), request.getKnowledgeId());
 
         String reply;
-        List<String> referencedChunks = null;
+        List<ChunkSource> referencedChunks = null;
         if (intent == ChatIntent.KNOWLEDGE) {
             // 知识库链路：高级 RAG 检索（改写/多路召回/RRF/Rerank/门控）
             KnowledgeRetrievalService.RetrievalResult result =
@@ -237,7 +238,7 @@ public class ChatServiceImpl implements ChatService {
         // 意图路由 + 同步调用千问（含工具调用，工具由 ToolRegistryService 按需筛选）；
         // 语义缓存命中时由全局 QaCacheAdvisor 短路，直接返回历史回答
         String reply;
-        List<String> referencedChunks = null;
+        List<ChunkSource> referencedChunks = null;
         try {
             ChatIntent intent = intentRecognitionService.classify(userId, request.getMessage(), request.getKnowledgeId());
             if (intent == ChatIntent.KNOWLEDGE) {

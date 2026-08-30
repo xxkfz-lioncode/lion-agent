@@ -102,7 +102,13 @@
             </div>
             <div v-if="msg.referencedChunks && msg.referencedChunks.length" class="reference-box">
               <div class="reference-title">📎 引用来源（{{ msg.referencedChunks.length }}）</div>
-              <div v-for="(chunk, i) in msg.referencedChunks" :key="i" class="reference-item">{{ chunk }}</div>
+              <div v-for="(chunk, i) in msg.referencedChunks" :key="i" class="reference-item">
+                <div class="reference-meta">
+                  <span class="reference-kb" :title="chunk.knowledgeName || '未知知识库'">{{ chunk.knowledgeName || '未知知识库' }}</span>
+                  <span v-if="chunk.fileName" class="reference-file" :title="chunk.fileName">{{ chunk.fileName }}</span>
+                </div>
+                <div class="reference-content">{{ chunk.content }}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -812,20 +818,52 @@ async function send() {
 }
 
 .reference-item {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-weak);
-  padding: 4px 8px;
+  padding: 6px 8px;
   border-radius: 4px;
   background: #fff;
   border: 1px solid var(--border);
-  margin-bottom: 4px;
-  word-break: break-all;
-  white-space: pre-wrap;
+  margin-bottom: 6px;
 }
 
 .reference-item:last-child {
   margin-bottom: 0;
+}
+
+.reference-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.reference-kb {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  background: rgba(66, 133, 244, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-file {
+  font-size: 11px;
+  color: var(--text-weak);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-content {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-weak);
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
 .typing-dot:nth-child(3) {
