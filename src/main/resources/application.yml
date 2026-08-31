@@ -29,11 +29,11 @@ spring:
         toolcallback:
           enabled: true
         request-timeout: 120s
-        sse:
-          connections:
+#        sse:
+#          connections:
              # 对方的 MCP Server 地址，调用商品分析
-             graph-analysis:
-               url: http://localhost:8082
+#             graph-analysis:
+#               url: http://localhost:8082
 #             travel-planner:
 #               url: http://localhost:8083
 

@@ -12,6 +12,7 @@ import com.lion.agent.mapper.KnowledgeDocumentMapper;
 import com.lion.agent.service.KnowledgeBaseService;
 import com.lion.agent.service.KnowledgeDocumentService;
 import com.lion.agent.service.async.DocumentProcessConsumer;
+import com.lion.agent.service.retriever.InMemoryChunkStore;
 import com.lion.agent.splitter.DocumentSplitterStrategy;
 import com.lion.agent.splitter.SplitterStrategyRegistry;
 import com.lion.agent.splitter.SplitterType;
@@ -46,12 +47,17 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private final VectorStore vectorStore;
     private final RedisTaskQueue taskQueue;
     private final SplitterStrategyRegistry splitterStrategyRegistry;
+    /** 本地内存分片副本：入库/删除时同步，供 BM25 关键词召回、窗口扩容直接读取（不依赖 Milvus 客户端） */
+    private final InMemoryChunkStore chunkStore;
 
     @Value("${lion.upload.path:upload/}")
     private String uploadPath;
 
     @Value("${lion.upload.allowed-types:text/plain,text/markdown,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document}")
     private Set<String> allowedTypes;
+
+    /** 知识库分片类型标记：检索时按 {@code type == 'kb'} 过滤，与工具索引(tool_index)/技能索引(skill_index)/缓存(qa_cache)/记忆(long_term_memory) 区分 */
+    private static final String KNOWLEDGE_TYPE = "kb";
 
     @Override
     public PageResult<KnowledgeDocument> listByKnowledgeId(Long knowledgeId, Long userId, int pageNum, int pageSize, String keyword) {
@@ -151,18 +157,22 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             // 2. 按选择的切分方式分片
             List<Document> chunks = splitByStrategy(splitter, parsedDocs);
 
-            // 3. 写入向量库（metadata 携带知识库/文档标识，便于按知识库过滤检索、按文档删除）
-            List<Document> vectorDocs = chunks.stream()
-                    .map(chunk -> Document.builder()
-                            .text(chunk.getText())
-                            .metadata(buildMetadata(knowledgeId, docId, doc.getFileName()))
-                            .build())
-                    .collect(Collectors.toList());
+            // 3. 写入向量库（metadata 携带知识库/文档标识/分片序号，便于按知识库过滤检索、按文档删除，
+            //    以及检索后做 small-to-big 窗口扩容时定位相邻分片）
+            List<Document> vectorDocs = new ArrayList<>(chunks.size());
+            for (int i = 0; i < chunks.size(); i++) {
+                vectorDocs.add(Document.builder()
+                        .text(chunks.get(i).getText())
+                        .metadata(buildMetadata(knowledgeId, docId, doc.getFileName(), i))
+                        .build());
+            }
             // MilvusVectorStore.add 内部会对整批做 embedding，DashScope 单次上限 10 条，分批写入
             final int addBatchSize = 10;
             for (int i = 0; i < vectorDocs.size(); i += addBatchSize) {
                 vectorStore.add(vectorDocs.subList(i, Math.min(i + addBatchSize, vectorDocs.size())));
             }
+            // 向量入库成功后同步本地内存副本（BM25/窗口扩容的本地数据源）
+            chunkStore.addAll(vectorDocs);
 
             // 4. 标记成功
             doc.setStatus(DocumentStatus.SUCCESS.getCode());
@@ -208,6 +218,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
         // 删除向量库中的该文档分片：按 documentId 过滤删除（Milvus 原生支持按表达式删除）
         vectorStore.delete("documentId == " + docId);
+        // 同步移除本地内存副本
+        chunkStore.removeByDocumentId(docId);
 
         documentMapper.deleteById(docId);
 
@@ -217,11 +229,13 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
     }
 
-    private Map<String, Object> buildMetadata(Long knowledgeId, Long docId, String fileName) {
+    private Map<String, Object> buildMetadata(Long knowledgeId, Long docId, String fileName, int chunkIndex) {
         Map<String, Object> metadata = new HashMap<>();
+        metadata.put("type", KNOWLEDGE_TYPE);
         metadata.put("knowledgeId", knowledgeId);
         metadata.put("documentId", docId);
         metadata.put("fileName", fileName);
+        metadata.put("chunkIndex", chunkIndex);
         return metadata;
     }
 

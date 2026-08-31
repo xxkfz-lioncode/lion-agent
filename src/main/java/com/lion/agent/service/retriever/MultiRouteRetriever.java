@@ -54,6 +54,8 @@ public class MultiRouteRetriever {
         if (routes.isEmpty()) {
             return List.of();
         }
+
+        // RRF
         return rrfFusion(routes, fuseTopN);
     }
 
@@ -69,8 +71,14 @@ public class MultiRouteRetriever {
                     continue;
                 }
                 double increment = 1.0 / (RRF_K + i + 1);
-                scoreMap.computeIfAbsent(doc.getId(), id -> new ScoredDocument(doc))
-                        .score += increment;
+                ScoredDocument existing = scoreMap.get(doc.getId());
+                if (existing == null) {
+                    scoreMap.put(doc.getId(), new ScoredDocument(doc, increment));
+                } else {
+                    existing.score += increment;
+                    // 同一分片被多路同时命中：合并来源标记，供合并后复评识别「双路命中」
+                    mergeSourceFlags(existing.document, doc);
+                }
             }
         }
         return scoreMap.values().stream()
@@ -80,13 +88,31 @@ public class MultiRouteRetriever {
                 .toList();
     }
 
+    /**
+     * 把 source 中的来源标记（src_vector/src_keyword）合并到 target 元数据：
+     * 多路召回命中同一分片时，先到达的路会创建实例，后到达的路只累加分数，
+     * 若不同步标记，复评会漏判「双路命中」。
+     */
+    private void mergeSourceFlags(Document target, Document source) {
+        if (target.getMetadata() == null || source.getMetadata() == null) {
+            return;
+        }
+        if (Boolean.TRUE.equals(source.getMetadata().get("src_vector"))) {
+            target.getMetadata().put("src_vector", true);
+        }
+        if (Boolean.TRUE.equals(source.getMetadata().get("src_keyword"))) {
+            target.getMetadata().put("src_keyword", true);
+        }
+    }
+
     /** 内部：文档 + 累计 RRF 分数 */
     private static class ScoredDocument {
         private final Document document;
         private double score;
 
-        ScoredDocument(Document document) {
+        ScoredDocument(Document document, double score) {
             this.document = document;
+            this.score = score;
         }
     }
 }

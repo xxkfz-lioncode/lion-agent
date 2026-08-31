@@ -148,7 +148,12 @@ public class DashScopeRerankUtils {
                     log.warn("[DashScopeRerank] 返回 index 越界或无效: {}", index);
                     continue;
                 }
-                reranked.add(candidates.get(index));
+                Document doc = candidates.get(index);
+                // 回写相关性分数到 metadata，供合并后复评（CombMNZ）与门控打分使用
+                if (doc.getMetadata() != null) {
+                    doc.getMetadata().put("rerankScore", result.getDouble("relevance_score", 1.0));
+                }
+                reranked.add(doc);
                 if (reranked.size() >= topN) {
                     break;
                 }
