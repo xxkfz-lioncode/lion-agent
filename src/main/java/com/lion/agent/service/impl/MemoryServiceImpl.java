@@ -1,6 +1,8 @@
 package com.lion.agent.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.lion.agent.common.enums.MemoryType;
+import com.lion.agent.common.enums.VectorType;
 import com.lion.agent.entity.AiMemory;
 import com.lion.agent.mapper.AiMemoryMapper;
 import com.lion.agent.service.MemoryExtractor;
@@ -43,10 +45,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class MemoryServiceImpl implements MemoryService {
 
-    /** Milvus 中本 collection 的类型标记（与 qa_cache 等隔离） */
-    private static final String MEMORY_TYPE_MARK = "long_term_memory";
-    /** MySQL ai_memory.memoryType 中用户画像记录的固定值 */
-    private static final String MEMORY_TYPE_PROFILE = "profile";
     /** Milvus doc id 长度上限（<= 36） */
     private static final int MAX_DOC_ID_LENGTH = 36;
 
@@ -140,7 +138,7 @@ public class MemoryServiceImpl implements MemoryService {
         // 查询该用户已有的全部画像记录（含历史遗留的多条，合并后收敛为一条）
         List<AiMemory> existingProfiles = memoryMapper.selectList(new LambdaQueryWrapper<AiMemory>()
                 .eq(AiMemory::getUserId, userId)
-                .eq(AiMemory::getMemoryType, "profile")
+                .eq(AiMemory::getMemoryType, MemoryType.PROFILE.getValue())
                 .orderByAsc(AiMemory::getId));
 
         if (!existingProfiles.isEmpty()) {
@@ -150,7 +148,7 @@ public class MemoryServiceImpl implements MemoryService {
 
         AiMemory memory = new AiMemory();
         memory.setUserId(userId);
-        memory.setMemoryType(MEMORY_TYPE_PROFILE);
+        memory.setMemoryType(MemoryType.PROFILE.getValue());
         memory.setContent(item.content());
         memory.setImportance(item.importance());
         memory.setSourceConversationId(conversationId);
@@ -209,7 +207,7 @@ public class MemoryServiceImpl implements MemoryService {
      * 按 memoryId 删除 Milvus 中的向量（含全部旧 doc，防止多轮重复）
      */
     private void deleteVectorByMemoryId(Long userId, Long memoryId) {
-        String delFilter = "type == '" + MEMORY_TYPE_MARK + "' && userId == '" + userId
+        String delFilter = "type == '" + VectorType.LONG_TERM_MEMORY.getValue() + "' && userId == '" + userId
                 + "' && memoryId == '" + memoryId + "'";
         try {
             store().delete(delFilter);
@@ -285,10 +283,10 @@ public class MemoryServiceImpl implements MemoryService {
      */
     private void addDocument(Long userId, Long conversationId, Long memoryId, MemoryItem item) {
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("type", MEMORY_TYPE_MARK);
+        metadata.put("type", VectorType.LONG_TERM_MEMORY.getValue());
         metadata.put("userId", String.valueOf(userId));
         metadata.put("memoryId", String.valueOf(memoryId));
-        metadata.put("memoryType", MEMORY_TYPE_PROFILE);
+        metadata.put("memoryType", MemoryType.PROFILE.getValue());
         metadata.put("importance", item.importance());
         if (conversationId != null) {
             metadata.put("conversationId", String.valueOf(conversationId));
@@ -313,7 +311,7 @@ public class MemoryServiceImpl implements MemoryService {
         if (!enabled || userId == null || !StringUtils.hasText(query)) {
             return List.of();
         }
-        String filter = "type == '" + MEMORY_TYPE_MARK + "' && userId == '" + userId + "'";
+        String filter = "type == '" + VectorType.LONG_TERM_MEMORY.getValue() + "' && userId == '" + userId + "'";
         try {
             List<Document> docs = store().similaritySearch(SearchRequest.builder()
                     .query(query)

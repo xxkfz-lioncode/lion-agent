@@ -10,6 +10,13 @@ spring:
   # 参考模板见 .env.example；.env 已被 gitignore，请勿提交真实密钥。
   config:
     import: optional:file:.env[.properties]
+  # 文件上传大小限制（超过则抛 MaxUploadSizeExceededException）
+  servlet:
+    multipart:
+      # 单个文件最大 10MB（知识库文档/多模态图片）
+      max-file-size: 10MB
+      # 单次请求（多个文件合计）最大 20MB
+      max-request-size: 20MB
 
 # mcp相关配置
   ai:
@@ -125,6 +132,14 @@ lion:
   prompt:
     # Agent 角色名
     agent-name: Lion Agent
+
+  # 多模态对话专用模型（MultimodalChatView 图片+文本对话）
+  # 复用 spring.ai.openai 的端点与密钥（DashScope OpenAI 兼容接口），仅切换模型名
+  multimodal:
+    # 视觉语言模型，可选 qwen-vl-max / qwen-vl-plus / qwen3-vl-plus 等
+    model: ${LION_MULTIMODAL_MODEL:qwen-vl-max}
+    # 采样温度
+    temperature: 0.1
 
   # Token 用量落库异步线程池（TokenUsageAdvisor 统计写入与主调用链路解耦，不阻塞响应）
   token-usage:

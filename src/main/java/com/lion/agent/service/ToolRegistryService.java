@@ -1,6 +1,7 @@
 package com.lion.agent.service;
 
 import cn.dev33.satoken.stp.StpInterface;
+import com.lion.agent.common.enums.VectorType;
 import com.lion.agent.tools.DateTools;
 import com.lion.agent.tools.StarFortuneTools;
 import com.lion.agent.annotation.ToolPermission;
@@ -51,9 +52,6 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ToolRegistryService {
-
-    /** 向量索引的 metadata type 标记：与知识库文档向量（knowledgeId 过滤）共用 collection，靠 type 隔离 */
-    private static final String INDEX_TYPE = "tool_index";
 
     /** 向量检索每次召回的工具数：K 取小值，宁缺勿滥——漏召回有常驻工具兜底，多召回则每个都占 token */
     private static final int TOP_K = 3;
@@ -147,7 +145,7 @@ public class ToolRegistryService {
 
         // 3. 全量重建向量索引：先按 type 清旧再分批写新（覆盖语义，不留脏数据）
         try {
-            vectorStore.delete("type == '" + INDEX_TYPE + "'");
+            vectorStore.delete("type == '" + VectorType.TOOL_INDEX.getValue() + "'");
             for (int i = 0; i < indexDocs.size(); i += ADD_BATCH_SIZE) {
                 vectorStore.add(indexDocs.subList(i, Math.min(i + ADD_BATCH_SIZE, indexDocs.size())));
             }
@@ -216,7 +214,7 @@ public class ToolRegistryService {
      * 当前项目未实现 StpInterface 时不做权限收敛（所有工具公开）。
      */
     private String buildPermissionFilter(Long userId) {
-        String base = "type == '" + INDEX_TYPE + "'";
+        String base = "type == '" + VectorType.TOOL_INDEX.getValue() + "'";
         StpInterface stpInterface = stpInterfaceProvider.getIfAvailable();
         if (stpInterface == null || userId == null) {
             return base;
@@ -256,7 +254,7 @@ public class ToolRegistryService {
     /** 工具描述 → 向量索引文档：text 是检索语料，metadata 携带权限码参与标量过滤 */
     private Document toIndexDocument(String toolName, ToolCallback callback, String permission) {
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("type", INDEX_TYPE);
+        metadata.put("type", VectorType.TOOL_INDEX.getValue());
         metadata.put("permission", permission);
         // 检索语料 = 工具名 + 描述：名字放前面是给向量的一份额外语义锚点（如 "queryStarFortune" 本身就含语义）
         String text = toolName + "：" + callback.getToolDefinition().description();

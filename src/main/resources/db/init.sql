@@ -86,6 +86,7 @@ CREATE TABLE knowledge_document (
     file_path   VARCHAR(512) DEFAULT NULL COMMENT '文件存储路径（相对 upload 目录）',
     status      TINYINT      NOT NULL DEFAULT 2 COMMENT '上传状态：0-失败 1-成功 2-处理中',
     fail_reason VARCHAR(512) DEFAULT NULL COMMENT '失败原因',
+    splitter    VARCHAR(32)  DEFAULT NULL COMMENT '文档切分方式（token/recursive/paragraph/sentence/line/semantic）',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     deleted     TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除 1-已删除',

@@ -17,6 +17,7 @@ import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -51,6 +52,36 @@ public class AiConfig {
 
     @Value("${lion.memory.inject-top-k:5}")
     private int memoryInjectTopK;
+
+    /**
+     * 多模态对话专用 ChatClient（图片 + 文本）。
+     * <p>
+     * 与 {@link #chatClient(ChatClient.Builder, ChatMemory, QaCacheService, ChatMessageMapper,
+     * ConversationSummaryMapper, TokenUsageService, MemoryService, ChatModel, PromptConfig) chatClient} 隔离：
+     * 不挂载 Token 统计/语义缓存/长期记忆/会话摘要等重 Advisor，仅保留日志顾问，链路保持简单。
+     * <p>
+     * 模型：复用自动配置的 OpenAI 兼容 ChatModel（DashScope 端点与主模型一致），
+     * 仅通过 defaultOptions 切换独立的多模态模型名（默认 qwen-vl-max，可用
+     * {@code lion.multimodal.model} 覆盖）。不新增 ChatModel Bean，避免容器内多模型注入歧义。
+     */
+
+
+    @Bean
+    public ChatClient multimodalChatClient(ChatModel chatModel,
+                                           PromptConfig promptConfig,
+                                           TokenUsageService tokenUsageService,
+                                           @Value("${lion.multimodal.model:qwen-vl-max}") String model,
+                                           @Value("${lion.multimodal.temperature:0.1}") double temperature) {
+        ChatOptions.Builder<?> builder = ChatOptions.builder().model(model).temperature(temperature);
+
+        return ChatClient.builder(chatModel)
+                .defaultOptions(builder)
+                .defaultAdvisors(
+                        new SimpleLoggerAdvisor(),
+                        new TokenUsageAdvisor(tokenUsageOrder, tokenUsageService))
+                .defaultSystem(promptConfig.renderSystemPrompt())
+                .build();
+    }
 
     @Bean
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,

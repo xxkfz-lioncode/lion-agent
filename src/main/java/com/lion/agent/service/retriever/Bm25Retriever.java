@@ -1,5 +1,6 @@
 package com.lion.agent.service.retriever;
 
+import com.lion.agent.common.enums.VectorType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Component;
@@ -147,8 +148,6 @@ public class Bm25Retriever implements Retriever {
 
     /**
      * 单条件匹配：field == value（value 支持数字与引号包裹的字符串）。
-     * 兼容历史数据：升级前入库的知识库分片没有 type 字段，
-     * 遇到 {@code type == 'kb'} 且字段缺失时视为知识库数据放行。
      */
     private boolean matchesCondition(Map<String, Object> metadata, String condition) {
         if (metadata == null || condition.isEmpty()) {
@@ -162,9 +161,7 @@ public class Bm25Retriever implements Retriever {
         String rawValue = condition.substring(idx + 2).trim();
         Object actual = metadata.get(field);
         if (actual == null) {
-            // 历史分片无 type 字段：缺省视为知识库类型
-            return "type".equals(field)
-                    && ("'kb'".equals(rawValue) || "\"kb\"".equals(rawValue) || "kb".equals(rawValue));
+            return false;
         }
         if ((rawValue.startsWith("'") && rawValue.endsWith("'"))
                 || (rawValue.startsWith("\"") && rawValue.endsWith("\""))) {

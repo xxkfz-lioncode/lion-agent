@@ -136,6 +136,7 @@ const openedGroups = ref(['knowledge'])
 
 const menuTree = [
   { key: 'chat', path: '/chat', title: '对话', icon: '💬' },
+  { key: 'multimodal', path: '/chat/multimodal', title: '多模态对话', icon: '🖼️' },
   {
     key: 'knowledge',
     title: '知识库',

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lion.agent.common.PageResult;
 import com.lion.agent.common.async.RedisTaskQueue;
 import com.lion.agent.common.enums.DocumentStatus;
+import com.lion.agent.common.enums.VectorType;
 import com.lion.agent.dto.DocumentProcessTask;
 import com.lion.agent.entity.KnowledgeDocument;
 import com.lion.agent.exception.BusinessException;
@@ -29,13 +30,13 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -55,9 +56,6 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
     @Value("${lion.upload.allowed-types:text/plain,text/markdown,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document}")
     private Set<String> allowedTypes;
-
-    /** 知识库分片类型标记：检索时按 {@code type == 'kb'} 过滤，与工具索引(tool_index)/技能索引(skill_index)/缓存(qa_cache)/记忆(long_term_memory) 区分 */
-    private static final String KNOWLEDGE_TYPE = "kb";
 
     @Override
     public PageResult<KnowledgeDocument> listByKnowledgeId(Long knowledgeId, Long userId, int pageNum, int pageSize, String keyword) {
@@ -96,6 +94,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         doc.setFileName(originalFilename);
         doc.setFileSize(file.getSize());
         doc.setFileType(contentType);
+        doc.setSplitter(StringUtils.hasText(splitter) ? splitter : SplitterType.TOKEN.getValue());
         doc.setStatus(DocumentStatus.PROCESSING.getCode());
         documentMapper.insert(doc);
 
@@ -229,9 +228,48 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
     }
 
+    @Override
+    public String preview(Long knowledgeId, Long docId, Long userId) {
+        knowledgeBaseService.getById(knowledgeId, userId);
+
+        KnowledgeDocument doc = documentMapper.selectById(docId);
+        if (doc == null || !doc.getKnowledgeId().equals(knowledgeId)) {
+            throw new BusinessException("文档不存在");
+        }
+
+        if (!StringUtils.hasText(doc.getFilePath())) {
+            return "文件尚未落盘，无法预览";
+        }
+        if (!isTextPreviewable(doc.getFileType())) {
+            return String.format("当前文件类型「%s」不支持文本预览，仅支持 text/plain、text/markdown", doc.getFileType());
+        }
+
+        Path path = Paths.get(doc.getFilePath());
+        if (!Files.exists(path)) {
+            return "文件已丢失，无法预览";
+        }
+
+        try {
+            byte[] bytes = Files.readAllBytes(path);
+            String text = new String(bytes, StandardCharsets.UTF_8);
+            int maxLen = 5000;
+            if (text.length() > maxLen) {
+                return text.substring(0, maxLen) + "\n\n……（已截断，仅展示前 " + maxLen + " 字符）";
+            }
+            return text;
+        } catch (IOException e) {
+            log.warn("预览文档失败，docId={}", docId, e);
+            return "读取文件失败：" + e.getMessage();
+        }
+    }
+
+    private boolean isTextPreviewable(String fileType) {
+        return "text/plain".equalsIgnoreCase(fileType) || "text/markdown".equalsIgnoreCase(fileType);
+    }
+
     private Map<String, Object> buildMetadata(Long knowledgeId, Long docId, String fileName, int chunkIndex) {
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("type", KNOWLEDGE_TYPE);
+        metadata.put("type", VectorType.KB.getValue());
         metadata.put("knowledgeId", knowledgeId);
         metadata.put("documentId", docId);
         metadata.put("fileName", fileName);

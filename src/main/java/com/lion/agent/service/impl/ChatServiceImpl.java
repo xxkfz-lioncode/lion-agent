@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lion.agent.common.PageResult;
 import com.lion.agent.common.constants.AdvisorConstants;
 import com.lion.agent.common.enums.ChatIntent;
+import com.lion.agent.common.enums.ChatType;
 import com.lion.agent.dto.ChatRequest;
 import com.lion.agent.entity.ChatMessage;
 import com.lion.agent.entity.Conversation;
@@ -64,6 +65,8 @@ public class ChatServiceImpl implements ChatService {
     private final ChatMessageMapper chatMessageMapper;
     private final TokenUsageMapper tokenUsageMapper;
     private final ChatClient chatClient;
+    /** 多模态对话专用 ChatClient（独立 Bean，仅挂日志 Advisor，链路简单） */
+    private final ChatClient multimodalChatClient;
     private final ChatMemory chatMemory;
     private final ToolRegistryService toolRegistryService;
     /** 系统提示词统一配置管理（模板与角色名集中维护，见 PromptConfig） */
@@ -113,17 +116,17 @@ public class ChatServiceImpl implements ChatService {
             if (!result.qualified()) {
                 // 门控拦截：资料不足以从知识库回答，降级为一般对话由主模型兜底
                 log.info("[Chat] 知识库检索未命中，降级为一般对话：{}", result.reason());
-                reply = callQwen(request.getMessage(), conversationId, "chat");
+                reply = callQwen(request.getMessage(), conversationId, ChatType.CHAT.getValue());
                 referencedChunks = List.of();
             } else {
                 // 检索通过：kb-answer 模板渲染（上下文 + 问题），chatType=kb
                 String prompt = promptConfig.renderKbAnswer(result.context(), request.getMessage());
-                reply = callQwen(prompt, conversationId, "kb");
+                reply = callQwen(prompt, conversationId, ChatType.KB.getValue());
                 referencedChunks = result.chunks();
             }
         } else {
             // 一般对话：原链路（带记忆/工具/缓存等全局 Advisor）
-            reply = callQwen(request.getMessage(), conversationId, "chat");
+            reply = callQwen(request.getMessage(), conversationId, ChatType.CHAT.getValue());
         }
 
 
@@ -175,7 +178,7 @@ public class ChatServiceImpl implements ChatService {
         chatMessageMapper.insert(userMessage);
 
         // 4. 调用多模态大模型（图片 + 文本，携带会话记忆）
-        String reply = callQwenMultimodal(message, imageRefs, conversationId);
+        String reply = callQwenMultimodal(message, imageRefs, conversationId, ChatType.CHAT.getValue());
 
         // 5. 保存 AI 回复
         ChatMessage assistantMessage = new ChatMessage();
@@ -188,8 +191,6 @@ public class ChatServiceImpl implements ChatService {
         // 6. 更新会话标题
         updateTitleIfNeeded(conversationId);
 
-        // 7. 异步抽取并落库长期记忆（走 memoryExecutor 线程池，不阻塞响应；失败仅告警）
-        memoryService.extractAndStoreAsync(userId, conversationId, message, reply);
 
         return ChatResult.builder()
                 .conversationId(conversationId)
@@ -247,15 +248,15 @@ public class ChatServiceImpl implements ChatService {
                         knowledgeRetrievalService.retrieve(userId, request.getMessage(), request.getKnowledgeId());
                 if (!result.qualified()) {
                     log.info("[Chat] 知识库检索未命中，降级为一般对话：{}", result.reason());
-                    reply = callQwen(request.getMessage(), finalConversationId, "chat");
+                    reply = callQwen(request.getMessage(), finalConversationId, ChatType.CHAT.getValue());
                     referencedChunks = List.of();
                 } else {
                     String prompt = promptConfig.renderKbAnswer(result.context(), request.getMessage());
-                    reply = callQwen(prompt, finalConversationId, "kb");
+                    reply = callQwen(prompt, finalConversationId, ChatType.KB.getValue());
                     referencedChunks = result.chunks();
                 }
             } else {
-                reply = callQwen(request.getMessage(), finalConversationId, "chat");
+                reply = callQwen(request.getMessage(), finalConversationId, ChatType.CHAT.getValue());
             }
         } catch (Exception e) {
             log.error("调用千问大模型失败", e);
@@ -419,19 +420,18 @@ public class ChatServiceImpl implements ChatService {
      * @param imageRefs      图片列表（非空）
      * @param conversationId 会话 ID，用于按会话保存/加载多轮记忆
      */
-    private String callQwenMultimodal(String message, List<ImageRef> imageRefs, Long conversationId) {
+    private String callQwenMultimodal(String message, List<ImageRef> imageRefs, Long conversationId,String chatType) {
         log.info("开始请求LLM大模型（多模态，{} 张图片）......", imageRefs.size());
         long userId = StpUtil.getLoginIdAsLong();
         try {
-            // 系统提示词：定义 Agent 角色（模板集中维护在 PromptConfig，用变量渲染）
-            String systemPrompt = promptConfig.renderSystemPrompt();
-            ChatClient.ChatClientRequestSpec spec = chatClient.prompt()
-                    .system(systemPrompt)
+            // 使用独立的多模态 ChatClient：不加载记忆/缓存/用量统计等 Advisor，链路简单
+            // 系统提示词已在 AiConfig#multimodalChatClient 通过 defaultSystem() 统一设置，此处无需重复传入
+            ChatClient.ChatClientRequestSpec spec = multimodalChatClient.prompt()
                     // 注入会话 ID / 用户 ID 到 Advisor 上下文（必须放在同一个 advisors 调用里，避免被覆盖）
                     .advisors(a -> a
                             .param(ChatMemory.CONVERSATION_ID, conversationId)
                             .param(AdvisorConstants.USER_ID_KEY, userId)
-                            .param(AdvisorConstants.CHAT_TYPE_KEY, "chat"))
+                            .param(AdvisorConstants.CHAT_TYPE_KEY, chatType))
                     // 工具按需注册：常驻（UserTools）+ 向量预筛（StarFortuneTools 等），见 ToolRegistryService
                     .tools(toolRegistryService.selectTools(message, userId));
             // 同步调用：工具调用由 Spring AI 自动处理，图片通过 UserSpec.media 注入用户消息

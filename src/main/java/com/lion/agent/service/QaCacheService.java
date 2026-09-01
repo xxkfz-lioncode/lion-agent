@@ -1,5 +1,6 @@
 package com.lion.agent.service;
 
+import com.lion.agent.common.enums.VectorType;
 import io.milvus.client.MilvusServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,9 +36,6 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class QaCacheService {
-
-    /** 缓存文档的 metadata type 标记 */
-    private static final String CACHE_TYPE = "qa_cache";
 
     /** Milvus 建表时 doc_id 为 VarChar 主键，max_length=36，因此 doc id 必须 ≤ 36 字符 */
     private static final int MAX_DOC_ID_LENGTH = 36;
@@ -119,7 +117,7 @@ public class QaCacheService {
         if (!enabled || !StringUtils.hasText(query)) {
             return null;
         }
-        String filter = "type == '" + CACHE_TYPE + "' && userId == '" + userId + "'";
+        String filter = "type == '" + VectorType.QA_CACHE.getValue() + "' && userId == '" + userId + "'";
         try {
             List<Document> docs = store().similaritySearch(SearchRequest.builder()
                     .query(query)
@@ -167,7 +165,7 @@ public class QaCacheService {
         }
         try {
             Map<String, Object> metadata = new HashMap<>();
-            metadata.put("type", CACHE_TYPE);
+            metadata.put("type", VectorType.QA_CACHE.getValue());
             // userId 存字符串，与 filterExpression 中的字符串比较保持一致
             metadata.put("userId", String.valueOf(userId));
             metadata.put("conversationId", conversationId);
@@ -197,7 +195,7 @@ public class QaCacheService {
      */
     public void clear(Long userId) {
         try {
-            store().delete("type == '" + CACHE_TYPE + "' && userId == '" + userId + "'");
+            store().delete("type == '" + VectorType.QA_CACHE.getValue() + "' && userId == '" + userId + "'");
             log.info("已清理语义缓存 userId={}", userId);
         } catch (Exception e) {
             storeReady = false;

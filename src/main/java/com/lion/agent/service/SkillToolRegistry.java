@@ -3,6 +3,7 @@ package com.lion.agent.service;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.lion.agent.common.enums.VectorType;
 import com.lion.agent.dto.SkillRequest;
 import com.lion.agent.entity.Skill;
 import com.lion.agent.mapper.SkillMapper;
@@ -51,9 +52,6 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class SkillToolRegistry {
 
-    /** 技能向量索引的 metadata type：与工具索引（tool_index）/知识库（knowledgeId 过滤）共用 collection，靠 type 隔离 */
-    private static final String SKILL_INDEX_TYPE = "skill_index";
-
     /** 技能检索 top-K：技能是用户自配的，命中面窄，K 取小值防 token 膨胀 */
     private static final int TOP_K = 3;
 
@@ -93,7 +91,7 @@ public class SkillToolRegistry {
         }
         log.info("技能本地索引加载 {} 条（{} 个用户）", skills.size(), skillIndex.size());
         try {
-            vectorStore.delete("type == '" + SKILL_INDEX_TYPE + "'");
+            vectorStore.delete("type == '" + VectorType.SKILL_INDEX.getValue() + "'");
             for (int i = 0; i < indexDocs.size(); i += ADD_BATCH_SIZE) {
                 vectorStore.add(indexDocs.subList(i, Math.min(i + ADD_BATCH_SIZE, indexDocs.size())));
             }
@@ -117,7 +115,7 @@ public class SkillToolRegistry {
             List<Document> hits = vectorStore.similaritySearch(SearchRequest.builder()
                     .query(query)
                     .topK(TOP_K)
-                    .filterExpression("type == '" + SKILL_INDEX_TYPE + "' && userId == " + userId)
+                    .filterExpression("type == '" + VectorType.SKILL_INDEX.getValue() + "' && userId == " + userId)
                     .build());
             List<ToolCallback> selected = new ArrayList<>();
             for (Document hit : hits) {
@@ -223,7 +221,7 @@ public class SkillToolRegistry {
     /** 技能描述 → 向量索引文档：text 是检索语料（名称放前给向量语义锚点），metadata 携带 userId 参与标量过滤 */
     private Document toIndexDocument(Skill skill) {
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("type", SKILL_INDEX_TYPE);
+        metadata.put("type", VectorType.SKILL_INDEX.getValue());
         metadata.put("userId", skill.getUserId());
         metadata.put("name", skill.getName());
         String text = skill.getName() + "：" + (skill.getDescription() == null ? "" : skill.getDescription());

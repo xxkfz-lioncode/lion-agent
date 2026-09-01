@@ -28,4 +28,14 @@ public interface KnowledgeDocumentService {
     void processDocument(Long knowledgeId, Long docId, String filePath, String splitter);
 
     void delete(Long knowledgeId, Long docId, Long userId);
+
+    /**
+     * 预览文档内容。
+     *
+     * @param knowledgeId 知识库 ID
+     * @param docId       文档 ID
+     * @param userId      当前用户 ID
+     * @return 文档文本内容（已截断），非文本文件返回空字符串或提示
+     */
+    String preview(Long knowledgeId, Long docId, Long userId);
 }

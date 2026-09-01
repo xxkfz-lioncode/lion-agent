@@ -51,4 +51,12 @@ public class KnowledgeDocumentController {
         documentService.delete(knowledgeId, docId, userId);
         return Result.success();
     }
+
+    @Operation(summary = "预览文档内容")
+    @GetMapping("/{docId}/preview")
+    public Result<String> preview(@PathVariable Long knowledgeId,
+                                  @PathVariable Long docId) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return Result.success(documentService.preview(knowledgeId, docId, userId));
+    }
 }

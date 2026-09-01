@@ -69,6 +69,24 @@ export async function streamChat({ conversationId, message, knowledgeId, onStart
   if (buffer.trim()) handleEvent(buffer)
 }
 
+/**
+ * 多模态对话（图片 + 文字，multipart/form-data，非流式）
+ * @param {Object} params
+ * @param {string} params.message 文本内容
+ * @param {number|null} [params.conversationId] 会话 ID（为空自动创建）
+ * @param {File[]} [params.images] 图片文件数组
+ * @param {string[]} [params.imageUrls] 图片 URL 数组
+ * @returns {Promise<{conversationId:number, reply:string, referencedChunks:Array|null}>}
+ */
+export function sendMultimodal({ message, conversationId, images = [], imageUrls = [] }) {
+  const formData = new FormData()
+  formData.append('message', message)
+  if (conversationId != null) formData.append('conversationId', conversationId)
+  images.forEach((file) => formData.append('images', file))
+  imageUrls.forEach((url) => formData.append('imageUrls', url))
+  return request.post('/chat/multimodal', formData)
+}
+
 /** 获取会话列表 */
 export function listConversations(params) {
   return request.get('/conversations', { params })

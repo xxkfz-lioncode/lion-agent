@@ -1,6 +1,7 @@
 package com.lion.agent.advisor;
 
 import com.lion.agent.common.constants.AdvisorConstants;
+import com.lion.agent.common.enums.ChatType;
 import com.lion.agent.entity.TokenUsage;
 import com.lion.agent.service.TokenUsageService;
 import lombok.extern.slf4j.Slf4j;
@@ -192,7 +193,7 @@ public class TokenUsageAdvisor implements CallAdvisor, StreamAdvisor {
      */
     private String resolveChatType(ChatClientRequest request) {
         Object value = request.context().get(AdvisorConstants.CHAT_TYPE_KEY);
-        return value != null ? value.toString() : "chat";
+        return value != null ? value.toString() : ChatType.CHAT.getValue();
     }
 
     @NotNull

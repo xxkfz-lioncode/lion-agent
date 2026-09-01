@@ -1,5 +1,6 @@
 package com.lion.agent.service;
 
+import com.lion.agent.common.enums.VectorType;
 import com.lion.agent.config.PromptConfig;
 import com.lion.agent.entity.KnowledgeBase;
 import com.lion.agent.service.retriever.ChunkPos;
@@ -155,7 +156,7 @@ public class KnowledgeRetrievalService {
                         .collect(Collectors.joining(" || ", "(", ")"));
             }
         }
-        return "type == 'kb' && " + scope;
+        return "type == '" + VectorType.KB.getValue() + "' && " + scope;
     }
 
     /**

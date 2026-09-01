@@ -54,6 +54,11 @@ public class KnowledgeDocument {
     private String failReason;
 
     /**
+     * 文档切分方式（token/recursive/paragraph/sentence/line/semantic）
+     */
+    private String splitter;
+
+    /**
      * 创建时间
      */
     @TableField(fill = FieldFill.INSERT)
