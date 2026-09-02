@@ -28,5 +28,8 @@ logs/
 .env.local
 .env.*.local
 
+# ===== 含密钥的工具类/脚本（勿提交） =====
+**/LangfuseAuthGenerator.java
+
 # ===== 上传文件（用户文档，勿提交） =====
 upload/

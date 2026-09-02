@@ -113,16 +113,11 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- Micrometer 与 OpenTelemetry 的桥接器（含 context-propagation，供线程池跨线程传播 trace context） -->
+        <!-- Spring Boot 4 OpenTelemetry 官方 Starter：Micrometer Tracing（OTel bridge）+ OTLP Span Exporter 全套自动配置，
+             与 spring-boot-starter-actuator 配合，将链路追踪数据以 OTLP 协议上报到 Langfuse -->
         <dependency>
-            <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-tracing-bridge-otel</artifactId>
-        </dependency>
-
-        <!-- OpenTelemetry OTLP 导出器，用于发送追踪数据到 Langfuse -->
-        <dependency>
-            <groupId>io.opentelemetry</groupId>
-            <artifactId>opentelemetry-exporter-otlp</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
         </dependency>
 
         <!-- ==================== 文档解析（Spring AI Tika） ==================== -->

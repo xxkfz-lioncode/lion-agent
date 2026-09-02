@@ -198,15 +198,31 @@ management:
     sampling:
       # 链路采样率：1.0 = 100% 全量采样（Langfuse 排障期建议全量，量大后可降为 0.1）
       probability: 1.0
-  otlp:
+  # ===== OpenTelemetry OTLP 链路导出（Spring Boot 4 专属写法）=====
+  # 注意：SB3 时代的 management.otlp.tracing.* 前缀在 SB4 已失效，必须迁移到 management.opentelemetry.tracing.export.otlp.*
+  # 依赖：pom.xml 中的 spring-boot-starter-opentelemetry，自动装配 OTLP Span Exporter，把链路数据上报到 Langfuse
+  opentelemetry:
     tracing:
-      # Langfuse Cloud (US) OTLP 端点；路径必须含 /api/public/otel，缺了会 404
-      endpoint: ${LANGFUSE_OTLP_ENDPOINT:https://us.cloud.langfuse.com/api/public/otel/v1/traces}
-      headers:
-        # OTLP 端点的认证方式为 Basic Auth：base64(pk-lf-xxx:sk-lf-xxx)，通过环境变量 LANGFUSE_OTLP_AUTH 注入，不写死在配置文件
-        Authorization: Basic ${LANGFUSE_OTLP_AUTH:}
-        # v4 实时摄取：不加此头，OTel 数据可能延迟最多 10 分钟才入库
-        x-langfuse-ingestion-version: "4"
+      export:
+        otlp:
+          # Langfuse Cloud (US) OTLP 端点。路径必须带 /api/public/otel 前缀，缺了会 404；
+          # 可通过 LANGFUSE_OTLP_ENDPOINT 环境变量覆盖，未设置时默认指向 Langfuse US 云服务
+          endpoint: ${LANGFUSE_OTLP_ENDPOINT:https://us.cloud.langfuse.com/api/public/otel/v1/traces}
+          headers:
+            # Langfuse OTLP 端点认证方式为 Basic Auth，值为 base64("pk-lf-xxx:sk-lf-xxx")。
+            # 兼容两种环境变量名：LANGFUSE_AUTH_BASIC（旧写法）与 LANGFUSE_OTLP_AUTH（.env.example / README 使用）；
+            # 注意：两者都未设置时这里取到空串 → Langfuse 会拒绝并返回 401（历史排查过的问题点，勿删嵌套兜底）
+            Authorization: "${LANGFUSE_AUTH_BASIC:${LANGFUSE_OTLP_AUTH:}}"
+            # Langfuse v4 实时摄取：必须携带，否则 OTel 数据可能延迟最长 10 分钟才入库
+            x-langfuse-ingestion-version: "4"
+  # 关闭 Micrometer OTLP metrics 上报：
+  # spring-boot-starter-opentelemetry 会自动激活 OtlpMeterRegistry，默认上报到本机 localhost:4318 的
+  # OpenTelemetry Collector；本机未部署 Collector 时会持续刷 Connection refused 日志，
+  # 且 metrics 数据对 Langfuse 无意义，故显式禁用（只保留 tracing）
+  otlp:
+    metrics:
+      export:
+        enabled: false
 
 
 
