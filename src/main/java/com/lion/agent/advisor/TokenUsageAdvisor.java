@@ -1,5 +1,6 @@
 package com.lion.agent.advisor;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.lion.agent.common.constants.AdvisorConstants;
 import com.lion.agent.common.enums.ChatType;
 import com.lion.agent.entity.TokenUsage;
@@ -149,6 +150,9 @@ public class TokenUsageAdvisor implements CallAdvisor, StreamAdvisor {
      */
     private Long resolveUserId(ChatClientRequest request) {
         Object value = request.context().get(AdvisorConstants.USER_ID_KEY);
+        if (value == null) {
+            value = StpUtil.getLoginId();
+        }
         if (value instanceof Long l) {
             return l;
         }
