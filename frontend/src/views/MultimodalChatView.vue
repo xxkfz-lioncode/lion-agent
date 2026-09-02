@@ -26,13 +26,19 @@
         <div class="avatar">{{ msg.role === 'user' ? '👤' : '🦁' }}</div>
         <div class="message-body">
           <div v-if="msg.images && msg.images.length" class="msg-images">
-            <img
+            <div
               v-for="(img, i) in msg.images"
               :key="i"
-              class="msg-img"
-              :src="img"
-              :alt="'图片 ' + (i + 1)"
+              class="msg-img-wrapper"
             >
+              <img
+                class="msg-img"
+                :src="img"
+                referrerpolicy="no-referrer"
+                :alt="'图片 ' + (i + 1)"
+                @error="$event.target.classList.add('img-load-failed')"
+              >
+            </div>
           </div>
           <div class="bubble">
             <div v-if="msg.content" class="text" v-html="renderMarkdown(msg.content)"></div>
@@ -62,7 +68,17 @@
     <!-- 待发送图片预览 -->
     <div v-if="pendingImages.length" class="pending-images">
       <div v-for="(img, i) in pendingImages" :key="i" class="pending-img">
-        <img :src="img.dataUrl" alt="待发送图片">
+        <img
+          :src="img.dataUrl"
+          alt="待发送图片"
+          referrerpolicy="no-referrer"
+          :class="{ 'img-load-failed': img.loadError }"
+          @error="handlePendingImageError(i)"
+        >
+        <div v-if="img.loadError" class="img-error" :title="img.url || img.dataUrl">
+          <span class="img-error-icon">🖼️</span>
+          <span>链接无法预览</span>
+        </div>
         <button class="remove-img" title="移除" @click="pendingImages.splice(i, 1)">×</button>
       </div>
     </div>
@@ -173,7 +189,7 @@ function addFiles(files) {
   for (const file of files) {
     const reader = new FileReader()
     reader.onload = () => {
-      pendingImages.value.push({ type: 'file', file, dataUrl: reader.result })
+      pendingImages.value.push({ type: 'file', file, dataUrl: reader.result, loadError: false })
     }
     reader.readAsDataURL(file)
   }
@@ -181,15 +197,39 @@ function addFiles(files) {
 
 /** 将图片 URL 加入待发送列表（逗号分隔） */
 function addImageUrls() {
-  const urls = imageUrlInput.value
+  const raw = imageUrlInput.value
+  const urls = raw
     .split(/[,，]/)
     .map((u) => u.trim())
     .filter(Boolean)
   if (!urls.length) return
-  urls.forEach((url) => {
-    pendingImages.value.push({ type: 'url', url, dataUrl: url })
-  })
+
+  for (const url of urls) {
+    // 去掉复制时可能带上的引号/书名号
+    let normalized = url.replace(/^['"`“”‘’<>]+|['"`“”‘’<>]+$/g, '').trim()
+    // 自动补全缺少协议的链接
+    if (!/^https?:\/\//i.test(normalized) && !/^data:image\//i.test(normalized)) {
+      normalized = 'https://' + normalized
+    }
+    // 简单校验是否为可识别的图片地址或 data URL
+    const isImageLike = /^data:image\//i.test(normalized) ||
+                        /\.(jpg|jpeg|png|gif|webp|bmp|svg|avif|webp|heic)(\?.*)?$/i.test(normalized) ||
+                        /^https?:\/\/.+/i.test(normalized)
+    if (!isImageLike) {
+      console.warn('[多模态] 跳过不合法的图片链接：', url)
+      continue
+    }
+    pendingImages.value.push({ type: 'url', url: normalized, dataUrl: normalized, loadError: false })
+  }
   imageUrlInput.value = ''
+}
+
+/** 待发送图片加载失败时的兜底处理 */
+function handlePendingImageError(index) {
+  const item = pendingImages.value[index]
+  if (item) {
+    item.loadError = true
+  }
 }
 
 async function send() {
@@ -390,12 +430,23 @@ async function send() {
   max-width: 100%;
 }
 
+.msg-img-wrapper {
+  position: relative;
+  display: inline-flex;
+  max-width: 220px;
+  max-height: 220px;
+}
+
 .msg-img {
   max-width: 220px;
   max-height: 220px;
   border-radius: 10px;
   border: 1px solid var(--border);
   object-fit: contain;
+}
+
+.msg-img.img-load-failed {
+  display: none;
 }
 
 .bubble {
@@ -555,6 +606,31 @@ async function send() {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.pending-img img.img-load-failed {
+  display: none;
+}
+
+.pending-img .img-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: #f2f3f7;
+  color: var(--text-weak);
+  font-size: 10px;
+  text-align: center;
+  padding: 4px;
+  word-break: break-all;
+}
+
+.img-error-icon {
+  font-size: 16px;
+  line-height: 1;
 }
 
 .remove-img {

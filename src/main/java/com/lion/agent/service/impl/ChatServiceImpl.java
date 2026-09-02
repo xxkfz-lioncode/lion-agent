@@ -27,7 +27,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
@@ -422,20 +421,9 @@ public class ChatServiceImpl implements ChatService {
      */
     private String callQwenMultimodal(String message, List<ImageRef> imageRefs, Long conversationId,String chatType) {
         log.info("开始请求LLM大模型（多模态，{} 张图片）......", imageRefs.size());
-        long userId = StpUtil.getLoginIdAsLong();
         try {
-            // 使用独立的多模态 ChatClient：不加载记忆/缓存/用量统计等 Advisor，链路简单
-            // 系统提示词已在 AiConfig#multimodalChatClient 通过 defaultSystem() 统一设置，此处无需重复传入
-            ChatClient.ChatClientRequestSpec spec = multimodalChatClient.prompt()
-                    // 注入会话 ID / 用户 ID 到 Advisor 上下文（必须放在同一个 advisors 调用里，避免被覆盖）
-                    .advisors(a -> a
-                            .param(ChatMemory.CONVERSATION_ID, conversationId)
-                            .param(AdvisorConstants.USER_ID_KEY, userId)
-                            .param(AdvisorConstants.CHAT_TYPE_KEY, chatType))
-                    // 工具按需注册：常驻（UserTools）+ 向量预筛（StarFortuneTools 等），见 ToolRegistryService
-                    .tools(toolRegistryService.selectTools(message, userId));
-            // 同步调用：工具调用由 Spring AI 自动处理，图片通过 UserSpec.media 注入用户消息
-            return spec.user(u -> {
+            return multimodalChatClient.prompt()
+                    .user(u -> {
                         u.text(message);
                         for (ImageRef ref : imageRefs) {
                             // Spring AI 2.0 UserSpec.media 仅支持 (MimeType, Resource) 与 (MimeType, URL) 两种重载
@@ -447,8 +435,7 @@ public class ChatServiceImpl implements ChatService {
                                 log.warn("忽略不支持的图片数据：{}", ref.data().getClass().getName());
                             }
                         }
-                    })
-                    .call().content();
+                    }).call().content();
         } catch (Exception e) {
             log.error("调用千问大模型失败", e);
             throw new BusinessException("AI 服务调用失败，请检查 QWEN_API_KEY 配置或稍后重试");
