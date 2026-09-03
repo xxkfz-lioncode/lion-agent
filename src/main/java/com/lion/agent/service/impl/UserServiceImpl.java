@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.lion.agent.common.ResultCode;
 import com.lion.agent.dto.LoginRequest;
 import com.lion.agent.dto.RegisterRequest;
+import com.lion.agent.dto.UpdatePasswordRequest;
+import com.lion.agent.dto.UpdateProfileRequest;
 import com.lion.agent.entity.User;
 import com.lion.agent.exception.BusinessException;
 import com.lion.agent.mapper.UserMapper;
@@ -80,5 +82,46 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "用户不存在");
         }
         return user;
+    }
+
+    @Override
+    public User updateProfile(UpdateProfileRequest request) {
+        long userId = StpUtil.getLoginIdAsLong();
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "用户不存在");
+        }
+        if (request.getNickname() != null) {
+            String nickname = request.getNickname().trim();
+            if (nickname.isEmpty()) {
+                throw new BusinessException("昵称不能为空");
+            }
+            user.setNickname(nickname);
+        }
+        // avatar 为 null 表示不修改；为空字符串表示清除头像
+        if (request.getAvatar() != null) {
+            user.setAvatar(request.getAvatar().trim());
+        }
+        userMapper.updateById(user);
+        log.info("用户 {} 更新了个人资料", userId);
+        return user;
+    }
+
+    @Override
+    public void updatePassword(UpdatePasswordRequest request) {
+        long userId = StpUtil.getLoginIdAsLong();
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "用户不存在");
+        }
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+            throw new BusinessException("原密码错误");
+        }
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userMapper.updateById(user);
+        log.info("用户 {} 修改了密码", userId);
+
+        // 密码已修改，当前会话强制下线，前端引导重新登录
+        StpUtil.logout();
     }
 }

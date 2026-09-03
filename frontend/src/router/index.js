@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import LoginView from '../views/LoginView.vue'
+import HomeView from '../views/HomeView.vue'
 import ChatView from '../views/ChatView.vue'
 import MultimodalChatView from '../views/MultimodalChatView.vue'
 import KnowledgeUpload from '../views/knowledge/UploadView.vue'
@@ -10,7 +11,8 @@ import SkillManage from '../views/skill/ManageView.vue'
 
 const routes = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true, title: '登录' } },
-  { path: '/', redirect: '/chat' },
+  { path: '/', redirect: '/home' },
+  { path: '/home', name: 'home', component: HomeView, meta: { title: '首页' } },
   { path: '/chat', name: 'chat', component: ChatView, meta: { title: '对话' } },
   { path: '/chat/multimodal', name: 'multimodal-chat', component: MultimodalChatView, meta: { title: '多模态对话' } },
   { path: '/knowledge/manage', name: 'knowledge-manage', component: KnowledgeManage, meta: { title: '知识库管理' } },

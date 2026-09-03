@@ -3,6 +3,8 @@ package com.lion.agent.controller;
 import com.lion.agent.common.Result;
 import com.lion.agent.dto.LoginRequest;
 import com.lion.agent.dto.RegisterRequest;
+import com.lion.agent.dto.UpdatePasswordRequest;
+import com.lion.agent.dto.UpdateProfileRequest;
 import com.lion.agent.entity.User;
 import com.lion.agent.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,7 +18,7 @@ import java.util.Map;
 /**
  * 认证接口
  */
-@Tag(name = "01-认证管理", description = "注册 / 登录 / 退出 / 当前用户")
+@Tag(name = "01-认证管理", description = "注册 / 登录 / 退出 / 当前用户 / 个人资料")
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -48,5 +50,18 @@ public class AuthController {
     @GetMapping("/me")
     public Result<User> me() {
         return Result.success(userService.getCurrentUser());
+    }
+
+    @Operation(summary = "修改个人资料（昵称 / 头像）", description = "返回更新后的用户信息")
+    @PutMapping("/profile")
+    public Result<User> updateProfile(@Valid @RequestBody UpdateProfileRequest request) {
+        return Result.success("修改成功", userService.updateProfile(request));
+    }
+
+    @Operation(summary = "修改密码", description = "校验原密码后更新；成功后当前会话强制下线，需重新登录")
+    @PutMapping("/password")
+    public Result<Void> updatePassword(@Valid @RequestBody UpdatePasswordRequest request) {
+        userService.updatePassword(request);
+        return Result.success("修改成功，请重新登录", null);
     }
 }

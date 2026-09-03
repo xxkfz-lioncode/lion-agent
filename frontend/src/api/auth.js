@@ -19,3 +19,13 @@ export function logout() {
 export function getMe() {
   return request.get('/auth/me')
 }
+
+/** 修改个人资料（昵称 / 头像），返回更新后的用户 */
+export function updateProfile(data) {
+  return request.put('/auth/profile', data)
+}
+
+/** 修改密码，成功后需重新登录 */
+export function updatePassword(data) {
+  return request.put('/auth/password', data)
+}

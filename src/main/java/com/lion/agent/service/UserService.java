@@ -2,6 +2,8 @@ package com.lion.agent.service;
 
 import com.lion.agent.dto.LoginRequest;
 import com.lion.agent.dto.RegisterRequest;
+import com.lion.agent.dto.UpdatePasswordRequest;
+import com.lion.agent.dto.UpdateProfileRequest;
 import com.lion.agent.entity.User;
 
 import java.util.Map;
@@ -30,4 +32,14 @@ public interface UserService {
      * 获取当前登录用户
      */
     User getCurrentUser();
+
+    /**
+     * 修改个人资料（昵称 / 头像），返回更新后的用户
+     */
+    User updateProfile(UpdateProfileRequest request);
+
+    /**
+     * 修改密码（需校验原密码，成功后强制重新登录）
+     */
+    void updatePassword(UpdatePasswordRequest request);
 }

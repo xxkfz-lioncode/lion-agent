@@ -1,13 +1,11 @@
 package com.lion.agent.config;
 
-import cn.dev33.satoken.annotation.SaIgnore;
 import cn.dev33.satoken.router.SaRouter;
 import cn.dev33.satoken.stp.StpUtil;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -37,7 +35,9 @@ public class SaTokenConfig implements WebMvcConfigurer {
             "/swagger-ui.html",
             "/favicon.ico",
             "/error",
-            "/mcp"
+            "/mcp",
+            // Langfuse 原生上报测试接口（本地调试用，联调完记得移除）
+            "/api/test/langfuse/**"
     };
 
 

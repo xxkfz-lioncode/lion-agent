@@ -101,6 +101,18 @@ lion:
       model: qwen3-vl-rerank
       # Rerank API 路径（baseUrl 固定为 https://dashscope.aliyuncs.com）
       url: /api/v1/services/rerank/text-rerank/text-rerank
+  langfuse:
+    # Langfuse 原生 Ingestion API 上报（可选能力，配合上方 OTel 链路使用）：
+    # OTel 只覆盖链路内 Span，链路外的自定义事件/评分需直连摄取 API（参考 LangfuseIngestClient）
+    # 未配置密钥时该工具类自动禁用，不影响主链路
+    # Langfuse 服务根地址（官方云为 https://us.cloud.langfuse.com；自部署填 http://localhost:3000）
+    base-url: ${LANGFUSE_BASE_URL:https://us.cloud.langfuse.com}
+    # 项目密钥（Langfuse 控制台 Project Settings 可查）：public-key 与 secret-key 需成对配置，缺一即禁用上报
+    public-key: ${LANGFUSE_PUBLIC_KEY:}
+    secret-key: ${LANGFUSE_SECRET_KEY:}
+    # 攒批上报参数：缓冲内事件数达到 batch-size，或距上次发送超过 flush-interval-ms 即发送一次
+    batch-size: 20
+    flush-interval-ms: 5000
 
   # 语义缓存（方案 A）：重复问题直接复用历史回答（向量相似度命中），省 token 且秒回
   qa-cache:

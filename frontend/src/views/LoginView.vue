@@ -89,7 +89,7 @@ async function handleSubmit() {
       const data = await login({ username: form.username, password: form.password })
       localStorage.setItem('token', data.token)
       localStorage.setItem('user', JSON.stringify(data.user))
-      router.push('/chat')
+      router.push('/home')
     } else {
       await register({
         username: form.username,
