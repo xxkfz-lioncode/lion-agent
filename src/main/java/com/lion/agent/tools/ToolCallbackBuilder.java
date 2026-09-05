@@ -56,36 +56,52 @@ public final class ToolCallbackBuilder {
                 return toolDefinition;
             }
 
+            @NotNull
             @Override
             public String call(String toolInput) {
-                System.out.println("\n╔══════════════════════════════════════════");
-                System.out.println("║ 🔧 [Tool Call] " + name);
-                System.out.println("║ 📥 入参: " + truncate(toolInput, 200));
-                System.out.println("╚══════════════════════════════════════════");
+                printBox("🔧 [Tool Call] " + name,
+                        "入参: " + truncate(toolInput, 200));
 
-                long startTime = System.currentTimeMillis();
+                long start = System.currentTimeMillis();
                 try {
                     String result = executor.apply(toolInput);
-                    long elapsed = System.currentTimeMillis() - startTime;
-
-                    System.out.println("\n╔══════════════════════════════════════════");
-                    System.out.println("║ ✅ [Tool Result] " + name);
-                    System.out.println("║ ⏱️ 耗时: " + elapsed + "ms");
-                    System.out.println("║ 📤 结果: " + truncate(result, 300));
-                    System.out.println("╚══════════════════════════════════════════\n");
+                    printBox("✅ [Tool Result] " + name,
+                            "耗时: " + elapsedMs(start),
+                            "结果: " + truncate(result, 300));
                     return result;
                 } catch (Exception exception) {
-                    long elapsed = System.currentTimeMillis() - startTime;
-
-                    System.err.println("\n╔══════════════════════════════════════════");
-                    System.err.println("║ ❌ [Tool Error] " + name);
-                    System.err.println("║ ⏱️ 耗时: " + elapsed + "ms");
-                    System.err.println("║ 💥 异常: " + exception.getMessage());
-                    System.err.println("╚══════════════════════════════════════════\n");
+                    // 输出整个异常对象（含类型与 message），避免 getMessage() 为 null 时只剩 "null"
+                    printBox("❌ [Tool Error] " + name,
+                            "耗时: " + elapsedMs(start),
+                            "异常: " + exception);
                     throw exception;
                 }
             }
         };
+    }
+
+    private static final String BOX_TOP = "╔══════════════════════════════════════════";
+    private static final String BOX_BOTTOM = "╚══════════════════════════════════════════";
+
+    /**
+     * 以「盒子」排版输出一段工具调用日志（入参 / 结果 / 异常共用同一套模板）
+     * 说明：故意使用 System.out 而非 SLF4J —— 多行盒子文本经 logback 输出时每行都会被
+     * 追加 pattern 前缀，破坏排版；若想接入日志框架，可改为单行 log.info(...) 格式。
+     */
+    private static void printBox(String title, String... lines) {
+        System.out.println();
+        System.out.println(BOX_TOP);
+        System.out.println("║ " + title);
+        for (String line : lines) {
+            if (line != null) {
+                System.out.println("║ " + line);
+            }
+        }
+        System.out.println(BOX_BOTTOM);
+    }
+
+    private static String elapsedMs(long start) {
+        return (System.currentTimeMillis() - start) + "ms";
     }
 
     /**
@@ -99,6 +115,6 @@ public final class ToolCallbackBuilder {
         if (oneLine.length() <= maxLength) {
             return oneLine;
         }
-        return oneLine.substring(0, maxLength) + "...（共" + text.length() + "字符）";
+        return oneLine.substring(0, maxLength) + "...（共" + oneLine.length() + "字符）";
     }
 }

@@ -62,6 +62,7 @@ const modules = [
   { path: '/knowledge/upload', icon: '📤', title: '知识库上传', desc: '上传文档构建领域知识' },
   { path: '/memory', icon: '🧠', title: '长期记忆', desc: '查看与管理 Agent 长期记忆' },
   { path: '/skill/manage', icon: '🧩', title: '技能管理', desc: '配置与编排 Agent 技能' },
+  { path: '/prompt/manage', icon: '📝', title: '提示词模板', desc: '查看与管理系统提示词模板' },
   { path: '/usage', icon: '📊', title: '用量统计', desc: '查看 Token 消耗与调用情况' }
 ]
 

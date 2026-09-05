@@ -430,3 +430,21 @@ INSERT INTO ai_skill (user_id, name, description, prompt_template, parameters, s
 {{input}}',
 '[{"name":"input","type":"string","description":"需要翻译的文本内容","required":true,"defaultValue":""}]', 1);
 
+-- ---------------------------------------------------------------------
+-- 提示词模板表（ai_prompt_template）
+-- 用于持久化管理 classpath:prompts/*.st 中的提示词模板
+-- 当数据库存在记录时，以该记录内容作为“DB 版本”生效；否则回退到 classpath 文件
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS ai_prompt_template;
+CREATE TABLE ai_prompt_template (
+    id          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    name        VARCHAR(64)  NOT NULL COMMENT '模板显示名',
+    file_name   VARCHAR(128) NOT NULL COMMENT '模板文件名（如 system-prompt.st）',
+    description VARCHAR(512) DEFAULT NULL COMMENT '模板用途描述',
+    content     TEXT         NOT NULL COMMENT '模板内容',
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_file_name (file_name)
+) ENGINE = InnoDB COMMENT ='提示词模板表';
+

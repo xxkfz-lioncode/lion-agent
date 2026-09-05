@@ -1,20 +1,72 @@
 # Lion Agent
 
-基于 **Spring AI 2.0** 的智能体（Agent）服务：多模态对话、多轮记忆、知识库 RAG、语义缓存、工具调用（含 MCP 远程工具），并配套 Vue 3 管理前端。
+基于 **Spring AI 2.0**（Spring Boot 4 / Java 21）的智能体（Agent）服务平台：文本/流式/多模态对话、知识库 RAG（入库→切分→多路召回→重排→门控）、语义缓存、跨会话长期记忆、自定义技能（动态工具）、多工具调用（含 MCP 远程工具）、Token 用量统计，并通过 OTel + Langfuse 原生摄取实现全链路可观测（含对话评分）；配套 Vue 3 后台前端（独立首页 + 标签页导航 + 用户设置）。
+
+## 功能总览
+
+| 模块 | 说明 |
+| --- | --- |
+| 智能对话 | 文本（同步/SSE 流式）+ 多模态（图文）双通道，会话支持重命名/删除/清空 |
+| 知识库 RAG | 上传（txt/md/pdf/doc/docx）→ Tika 解析 → 6 种切分策略 → Milvus 向量化（全异步）；问答走「意图识别→语义改写→多路召回→RRF→Rerank→门控」流水线，支持引用溯源 |
+| 高级 RAG 兜底 | 语义缓存（相似问题秒回 + 省 token）、Advisor 链（TokenUsage / Summary / QaCache） |
+| 多轮与长期记忆 | 会话内多轮记忆 = JDBC 滑动窗口原文 + 增量压缩摘要双通路（含 100 条触发阈值、最近 5 条原文保精度）；跨会话用户画像（事实/偏好）由 LLM 抽取、Milvus 检索注入 |
+| 工具调用 | 三层收敛（常驻 + 权限 + 向量预筛）的 RAG of Tools；内置日期/用户/星座/天气等工具 + MCP Server/Client |
+| 自定义技能 | 页面维护「提示词模板 + 参数」，运行期动态构建为 ToolCallback，内置 7 个种子技能，支持试跑与导出 |
+| 用量与可观测 | Token 用量统计（用户/会话/模型维度）+ OpenTelemetry→Langfuse 全链路 Trace + 原生摄取能力（对话满意度评分 / 自定义事件补报，含演示接口） |
+| 账号体系 | 注册/登录（BCrypt + Sa-Token），个人资料（昵称/头像）与密码自助修改 |
 
 ## 技术栈
 
 | 分类 | 技术 |
 | --- | --- |
 | 语言/框架 | Java 21、Spring Boot 4.0.7、Spring AI 2.0.0 |
-| 数据 | MySQL 8 + MyBatis-Plus、Redis（Spring Data Redis）、Milvus 向量库 |
+| 数据 | MySQL 8 + MyBatis-Plus 3.5、Redisson（Redis）、Milvus 向量库 |
 | 模型 | 通义千问 DashScope（OpenAI 兼容）：qwen 系列对话 + text-embedding-v3（1024 维） |
 | 文档解析 | Apache Tika（pdf / doc / docx / txt / md） |
 | 认证 | Sa-Token（自定义 HandlerInterceptor） |
 | 工具 | Hutool（JSON 序列化）、Resilience4j（熔断）、springdoc-openapi（Swagger UI） |
 | 远程工具 | MCP（本服务提供 streamable-http Server，同时以 SSE Client 接入第三方 MCP Server） |
-| 可观测性 | Actuator + OpenTelemetry → Langfuse |
+| 可观测性 | Actuator + OpenTelemetry → Langfuse（OTLP）；自研 `LangfuseIngestClient` 原生摄取（评分 / 自定义事件） |
 | 前端 | Vue 3 + Vite（`frontend/` 目录） |
+
+## 项目结构
+
+```
+lion-agent/
+├── src/main/java/com/lion/agent/
+│   ├── advisor/            # Advisor 链：TokenUsage / ConversationSummary / QaCache / Memory 注入
+│   ├── common/             # Result、PageResult、枚举、异步队列组件（async/：RedisTaskQueue + AbstractRedisTaskConsumer）
+│   ├── config/             # AiConfig、PromptConfig（st 模板）、SaTokenConfig、线程池等
+│   ├── controller/         # Auth / Chat / Conversation / Knowledge / Document / Memory / Skill / TokenUsage
+│   │   └── test/           # LangfuseTestController（评分/摄取手工调试）
+│   ├── dto/                # 请求体与任务消息（Register / Login / Skill / UpdateProfile / UpdatePassword / DocumentProcessTask）
+│   ├── entity/             # User / Conversation / ChatMessage / ConversationSummary / KnowledgeBase /
+│   │                       # KnowledgeDocument / AiMemory / Skill / TokenUsage
+│   ├── exception/          # 全局异常（BusinessException + 统一处理）
+│   ├── mapper/             # MyBatis-Plus Mapper
+│   ├── service/
+│   │   ├── impl/           # 业务实现（Chat / KnowledgeDocument / KnowledgeRetrieval / Memory / Skill ...）
+│   │   ├── async/          # DocumentProcessConsumer（Redis 异步消费者）
+│   │   ├── retriever/      # 检索增强（Rerank 等）
+│   │   └── *.java          # 核心服务：ChatService / IntentRecognitionService / QaCacheService /
+│   │                       # KnowledgeRetrievalService / MemoryExtractor / MemoryService /
+│   │                       # SkillToolRegistry / ToolRegistryService / WeatherService ...
+│   ├── tools/              # DateTools / UserTools / StarFortuneTools / TimeLimiterTools / ToolCallbackBuilder / mcptool/
+│   ├── utils/              # LangfuseIngestClient（原生摄取+评分）/ DashScopeRerankUtils / MilvusQueryUtils
+│   └── vo/                 # 返回视图对象
+├── src/main/resources/
+│   ├── application*.yml    # 按环境拆分（dev / prod），敏感项走环境变量
+│   ├── db/init.sql         # 建库建表 + 内置技能种子数据
+│   └── prompts/*.st        # 提示词模板（意图识别 / 记忆抽取 / 改写 / 重排 / 门控 等）
+├── frontend/               # Vue 3 前端（views / components / api / router）
+│   ├── src/views/          # Login / Home / Chat / MultimodalChat / knowledge/ / memory / skill/ / usage
+│   ├── src/components/     # UserProfileModal / ConfirmDialog / InputDialog / PaginationBar
+│   └── src/api/            # auth / chat / knowledge / memory / skill / token-usage
+├── docker-compose.yml      # MySQL / Redis / etcd / MinIO / Milvus / Attu 一键编排
+├── start-frontend.bat      # Windows 前端一键启动脚本
+├── .env / .env.example     # 本地敏感配置（.env 不提交）
+└── pom.xml
+```
 
 ## 快速开始
 
@@ -166,12 +218,15 @@ MILVUS_PORT=19530
 
 | 变量 | 说明 |
 | --- | --- |
-| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | MySQL 连接 |
+| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | MySQL 连接；`DB_ROOT_PASSWORD` 仅供 docker compose 容器初始化 |
 | `REDIS_PASSWORD` | Redis 密码（无密码留空） |
 | `QWEN_API_KEY` | 通义千问 DashScope API Key（必填） |
+| `QWEN_BASE_URL` / `QWEN_MODEL` | 可选：覆盖 DashScope 地址与对话模型（默认 `qwen3.8-max`） |
+| `LION_MULTIMODAL_MODEL` | 可选：多模态模型（默认 `qwen-vl-max`） |
 | `LION_ALAPI_TOKEN` | ALAPI Token（星座运势等第三方接口，可选） |
 | `MILVUS_HOST` / `MILVUS_PORT` / `MILVUS_DATABASE` / `MILVUS_COLLECTION` | Milvus 连接与 collection |
-| `LANGFUSE_OTLP_ENDPOINT` / `LANGFUSE_OTLP_AUTH` | Langfuse OTLP 端点与 Basic Auth（`base64(pk:sk)`） |
+| `LANGFUSE_OTLP_ENDPOINT` / `LANGFUSE_OTLP_AUTH` | Langfuse OTLP 端点与 Basic Auth（`base64(pk:sk)`），链路追踪 |
+| `LANGFUSE_BASE_URL` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | Langfuse 原生摄取（对话评分/自定义事件补报）公钥私钥，可选 |
 | `LION_UPLOAD_PATH` | 文件上传目录（默认 `upload/`） |
 
 业务开关（yml）：
@@ -183,9 +238,10 @@ MILVUS_PORT=19530
 | `lion.qa-cache.collection-name` | `lion_agent_qa_cache` | 语义缓存专用 Milvus collection（与知识库物理隔离） |
 | `lion.async.consume-threads` | `2` | 异步队列消费线程数 |
 | `lion.async.max-retry` | `3` | 文档处理失败最大重试次数 |
-| `lion.advisor.token-usage-order` | `-2147483648` | Token 用量统计 Advisor 调用链顺序（order 越小越靠外层） |
-| `lion.advisor.qa-cache-order` | `-2147483647` | 语义缓存 Advisor 调用链顺序（默认在会话记忆之前，命中可短路） |
-| `lion.advisor.conversation-summary-order` | `100` | 会话记忆摘要 Advisor 调用链顺序 |
+| `lion.advisor.token-usage-order` | `-100` | Token 用量统计 Advisor 调用链顺序（order 越小越靠外层） |
+| `lion.advisor.qa-cache-order` | `10` | 语义缓存 Advisor 调用链顺序（在会话记忆之前，命中可短路） |
+| `lion.advisor.long-term-memory-order` | `200` | 长期记忆 Advisor 调用链顺序 |
+| `lion.advisor.conversation-summary-order` | `300` | 会话记忆摘要 Advisor 调用链顺序（摘要阈值 100、保留原文 5 条当前硬编码于 `AiConfig`，见 1.2） |
 | `lion.prompt.agent-name` | `Lion Agent` | 系统提示词中的 Agent 角色名（渲染模板变量 `{agentName}`） |
 | `lion.token-usage.executor.core-pool-size` | `2` | Token 用量落库异步线程池核心线程数 |
 | `lion.token-usage.executor.max-pool-size` | `8` | 线程池最大线程数 |
@@ -196,13 +252,15 @@ MILVUS_PORT=19530
 
 | 表 | 说明 |
 | --- | --- |
-| `sys_user` | 用户 |
-| `conversation` | 会话（支持重命名/删除/清空） |
+| `sys_user` | 用户（含昵称、头像；密码 BCrypt） |
+| `chat_conversation` | 会话（支持重命名/删除/清空） |
 | `chat_message` | 消息（`user` / `assistant`），多轮记忆的唯一落库来源 |
 | `chat_conversation_summary` | 会话摘要，多版本保留（`version` + `last_message_id` 增量游标） |
 | `knowledge_base` | 知识库 |
 | `knowledge_document` | 文档，`status`：0 失败 / 1 成功 / 2 处理中，失败原因记录在 `fail_reason` |
 | `ai_token_usage` | Token 用量统计，`TokenUsageAdvisor` 每次模型调用后写入（用户 / 会话 / 模型 / 输入输出 token / 耗时） |
+| `ai_memory` | 用户长期记忆（MySQL 侧原文：类型 fact/preference、重要性 1-5、来源会话），向量在 Milvus `lion_agent_memory` |
+| `ai_skill` | 自定义技能（提示词模板 `{{param}}` 占位符 + 参数 JSON，`user_id=0` 为内置全局种子技能） |
 
 ## 核心设计
 
@@ -212,9 +270,65 @@ MILVUS_PORT=19530
 用户消息 → 落库 chat_message → Advisor 链 → 模型调用 → 回复落库 + 写语义缓存
 ```
 
-- **多轮记忆**：历史不再存内存，直接从 `chat_message` 表按 id 升序读取；`ConversationSummaryAdvisor` 只对 `last_message_id` 游标之后的新消息做增量压缩，压缩结果按 `version+1` 落库 `chat_conversation_summary`，未达阈值时复用最新摘要。
+- **多轮记忆**：会话内多轮记忆由「JDBC 滑动窗口原文（短程）」与「`chat_message` 全量 + 增量压缩摘要（长程）」双通路共同提供，完整机制见 1.1 / 1.2。
 - **语义缓存**（`QaCacheAdvisor` + `QaCacheService`）：问题先做向量检索，与历史问题相似度 ≥ 阈值（默认 0.78）直接复用历史回答——省 token、秒回、答案一致；按 `userId` 隔离；Milvus 故障自动降级跳过缓存，不影响主流程。
 - **多模态**：`POST /api/chat/multimodal`，`multipart/form-data` 上传 `message` + `images`（多张）/ `imageUrls`，图文一起发送给多模态模型。
+
+#### 1.1 Advisor 调用链（order 越小越靠外层、越先执行请求侧逻辑）
+
+由 `AiConfig` 统一装配（order 可用 `lion.advisor.*-order` 调整）：
+
+| order | Advisor | 职责 |
+| --- | --- | --- |
+| `-100` | `TokenUsageAdvisor` | Token 用量统计（最外层，拿到最终响应后落库 `ai_token_usage`） |
+| `0` | `SimpleLoggerAdvisor` / `MessageChatMemoryAdvisor` | 请求日志；从 JDBC `ChatMemory` 读取该会话最近窗口原文注入 prompt（本轮问答响应后写回） |
+| `10` | `QaCacheAdvisor` | 语义缓存（相似问题命中直接短路，跳过记忆注入与模型调用） |
+| `200` | `LongTermMemoryAdvisor` | 跨会话用户画像（Milvus 检索注入 System Prompt） |
+| `300` | `ConversationSummaryAdvisor` | 会话摘要：以 `chat_message` 全量为源做增量压缩，注入长程摘要 + 最近原文 |
+
+要点：`MessageChatMemoryAdvisor`（order 0）先于 `ConversationSummaryAdvisor`（order 300）执行，因此**摘要 Advisor 拿到请求时，prompt 的 instructions 里通常已包含窗口记忆注入的历史**——两条记忆通路由此叠加生效（见 1.2）。
+
+#### 1.2 会话记忆：窗口原文（短程）+ 增量摘要（长程）
+
+项目对"会话内多轮记忆"采用**两套机制并存**（`AiConfig`）：
+
+**通路 A——JDBC 滑动窗口（短程原文，`MessageChatMemoryAdvisor`）**
+
+```java
+ChatMemory messageWindowChatMemory(JdbcChatMemoryRepository repository) {
+    return MessageWindowChatMemory.builder()
+            .chatMemoryRepository(repository)
+            .maxMessages(500)              // 每会话最多保留 500 条
+            .build();
+}
+// 读取时用 ReadLimitChatMemory(chatMemory, 30) 截断：每次只注入最近 30 条
+```
+
+- 存储为 Spring AI 内部仓库表（JDBC 持久化，进程重启不丢），但本质是**滑动窗口**：超长历史会被窗口淘汰，没有"全量 + 游标"概念。
+- 读时限制 30 条（`ReadLimitChatMemory`），响应完成后把本轮问答 `add` 写回。
+
+**通路 B——`chat_message` 全量 + 增量压缩摘要（长程，`ConversationSummaryAdvisor`）**
+
+```
+每轮调用
+  → ① 查 chat_message 该会话全部 user/assistant 消息（按 id 升序）
+  → ② 以 chat_conversation_summary 最新版 last_message_id 为游标，筛出「游标之后的新增消息」
+        ├ 新增条数 < summaryThreshold(默认 100) → 不做摘要调用，直接复用最新摘要
+        └ 新增条数 ≥ 100 → 渲染「旧摘要 + 新增消息」(summary-merge.st / summary-compress.st 模板)，
+             用不含本 Advisor 的干净 ChatClient 生成新摘要 → 落库 version+1、游标前移至最新消息
+  → ③ 注入内容 = [SystemMessage 对话历史摘要] + 最近 keepRecentCount(默认 5) 条原始消息
+```
+
+两个参数的含义（当前硬编码于 `AiConfig`，非 yml 开关）：
+
+| 参数 | 含义 | 当前值 | 调大 / 调小的影响 |
+| --- | --- | --- | --- |
+| `summaryThreshold` | 触发一次摘要压缩所需的「游标后新增消息条数」（省 token 的节流阀） | `100` | 调大：压缩少、省 token，但摘要更新慢；调小：压缩勤、记忆更及时，token 花费更多 |
+| `keepRecentCount` | 压缩后仍逐字保留的「最近 N 条原始消息」注入给模型 | `5` | 调大：近程上下文更准，token 更多；调小：更省 token，但最近几轮可能被压进摘要丢细节 |
+
+设计意图：**摘要保长程（老内容低成本携带），原文保近程（最近几轮一字不差）**；增量压缩只在游标后消息攒够阈值时发生一次，且摘要生成走独立的干净 `ChatClient`，避免摘要请求递归触发自身。
+
+> 注意：通路 A（窗口 30 条）与通路 B（摘要 + 最近 5 条）当前同时生效，最近几轮原文会被**重复注入**（有一定 token 冗余）。`ConversationSummaryAdvisor` 类注释已声明"基于业务表 chat_message，不再依赖 Spring AI 内存仓库"——若确认新方案独活，可考虑从 `AiConfig` 链中摘除 `MessageChatMemoryAdvisor` 通路 A。
 
 ### 2. 知识库 RAG 完整流程（入库 → 切分 → 检索 → 作答）
 
@@ -300,80 +414,32 @@ MILVUS_PORT=19530
 
 MCP：本服务内置 streamable-http Server（`/mcp`），同时可作为 SSE Client 接入第三方 MCP Server（如商品分析），接入的工具同样参与向量索引与熔断保护。
 
-### 4. 可观测性
+### 4. 可观测性（OTel Trace + Langfuse 原生摄取）
 
-- Actuator 全量端点（`/actuator/health` 等）。
-- OpenTelemetry 链路追踪 → Langfuse Cloud（OTLP，Basic Auth 经环境变量注入），采样率 `management.tracing.sampling.probability=1.0`。
+- **主链路自动追踪**：OpenTelemetry → Langfuse（OTLP 端点，Basic Auth 经 `LANGFUSE_OTLP_ENDPOINT` / `LANGFUSE_OTLP_AUTH` 注入），采样率 1.0，覆盖 Spring AI 全部调用；每轮对话可在 Langfuse 按 traceId / sessionId 检索完整调用链。
+- **健康与指标**：Actuator 全量端点（`/actuator/health` 等）暴露给运维探活。
+- **原生摄取补报**（`LangfuseIngestClient`，无官方 SDK 直连 `/api/public/ingestion`）：OTel 覆盖不到的事件用原生 API 补报——如给某次对话打满意度评分、上报离线链路外的调用；自带「攒批 + 定时 flush + 部分失败日志」，密钥未配置时自动降级不阻塞主流程。
+- **对话评分**：`scoreTrace(traceId, "answer-satisfaction", value, comment)` 可为任意一次对话补满意度评分（附 traceId 关联，如 value=4.5），是 OTel 链路覆盖不到的"效果评估"类诉求。
+- **调试入口**：`controller/test/LangfuseTestController` 提供「完整链路演示（建 Trace → Generation → 打 4.5 分 → flush）」「单条评分」「裸 Trace」三个接口，Swagger `http://localhost:8080/swagger-ui.html` 直接调用后到 Langfuse 控制台按返回的 traceId 核对。
 
-## 接口总览
-
-### 认证 `/api/auth`
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| POST | `/api/auth/register` | 注册 |
-| POST | `/api/auth/login` | 登录，返回 token |
-| POST | `/api/auth/logout` | 退出登录 |
-| GET | `/api/auth/me` | 当前登录用户信息 |
-
-### 对话 `/api/chat`
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| POST | `/api/chat/send` | 发送消息（`conversationId` 为空自动建会话，可选 `knowledgeId` 指定知识库） |
-| POST | `/api/chat/stream` | SSE 流式返回（事件：start / message / done；可选 `knowledgeId`） |
-| POST | `/api/chat/multimodal` | 多模态，`multipart/form-data`：`message`、`conversationId`、`images`(多文件)、`imageUrls`(多 URL) |
-
-### 会话 `/api/conversations`
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/conversations` | 会话列表（分页 + 关键词） |
-| GET | `/api/conversations/{id}/messages` | 消息记录（分页） |
-| DELETE | `/api/conversations/{id}` | 删除会话 |
-| DELETE | `/api/conversations/all` | 清空全部会话 |
-| PUT | `/api/conversations/{id}` | 重命名 |
-
-### 知识库 `/api/knowledge`
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/knowledge` | 知识库列表 |
-| POST | `/api/knowledge` | 创建知识库 |
-| PUT | `/api/knowledge/{id}` | 修改知识库 |
-| DELETE | `/api/knowledge/{id}` | 删除知识库 |
-| GET | `/api/knowledge/{knowledgeId}/documents` | 文档列表（轮询 `status` 感知异步处理结果） |
-| POST | `/api/knowledge/{knowledgeId}/documents` | 上传文档（`file` + `splitter`，异步处理秒回） |
-| DELETE | `/api/knowledge/{knowledgeId}/documents/{docId}` | 删除文档 |
-
-### 用量统计 `/api/token-usage`
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/token-usage` | 分页查询当前用户用量（`chatType`：chat / kb，可选） |
-| GET | `/api/token-usage/stats` | 汇总统计：总/今日调用次数、总/今日 token、平均耗时 |
-
-认证方式：除注册/登录/多模态等 `@SaIgnore` 接口外，请求头携带 `Authorization: <token>`。
-
-## 项目结构
+### 5. 跨会话长期记忆（Memory）
 
 ```
-lion-agent/
-├── src/main/java/com/lion/agent/
-│   ├── advisor/            # Advisor 链：TokenUsage / ConversationSummary / QaCache
-│   ├── common/             # Result、PageResult、异步队列组件（async/）
-│   ├── config/             # AiConfig、SaTokenConfig 等
-│   ├── controller/         # 认证 / 对话 / 会话 / 知识库 / 文档
-│   ├── dto/                # 请求体与任务消息（DocumentProcessTask）
-│   ├── entity/             # 实体（User / Conversation / ChatMessage / ConversationSummary ...）
-│   ├── exception/          # 全局异常
-│   ├── mapper/             # MyBatis-Plus Mapper
-│   ├── service/
-│   │   ├── impl/           # 业务实现（Chat / KnowledgeDocument / KnowledgeRetrieval ...）
-│   │   └── async/          # DocumentProcessConsumer（Redis 任务消费者）
-│   ├── tools/              # UserTools（常驻）、StarFortuneTools（星座）、mcptool/（MCP 工具）
-│   └── vo/                 # 返回视图对象
-├── src/main/resources/
-│   ├── application*.yml    # 按环境拆分（dev / prod），敏感项走环境变量
-│   ├── db/init.sql         # 建库建表脚本
-├── frontend/               # Vue 3 前端
-├── .env / .env.example     # 本地敏感配置（.env 不提交）
-└── pom.xml
+每轮对话（用户消息 + AI 回复）
+  → MemoryExtractor 用「无 Advisor 的裸 ChatModel」抽取事实/偏好（JSON，容错解析）
+  → 重要性打分 1-5，落库 ai_memory（fact / preference）
+  → embedding 写 Milvus lion_agent_memory（按 userId 隔离，检索阈值 0.55）
+  → 后续对话经 Advisor 检索用户记忆注入 System Prompt，跨会话记住用户偏好
 ```
+
+要点：抽取失败静默降级为空列表，不影响主链路；记忆只存用户主动陈述的持久性事实（如预算、喜好），避免噪音；`GET /api/memory/list` 可查看当前用户全部记忆画像。
+
+### 6. 自定义技能（页面维护 → 运行期动态工具）
+
+- **存储**：`ai_skill` 表，一条技能 = 名称 + 描述（模型判断何时调用 + 向量语料）+ 提示词模板 + 参数定义 JSON（`{{param}}` 占位符运行期替换）。
+- **运行**：`SkillToolRegistry` 启动/变更时把用户技能动态构建为 `ToolCallback`，模型选中后执行器填参替换模板，再用裸 `ChatModel` 调用一次 LLM，结果作为工具返回值回主对话。
+- **检索与隔离**：技能是用户私有的，向量索引复用知识库 Milvus collection，靠 `type=skill_index + userId` 标量过滤隔离；模型调用前按 query 相似度召回 TopK=3 再交给 function calling。
+- **递归规避**：技能执行/试跑只用裸 ChatModel，绝不经过全局 ChatClient（避免技能再次看到自己而死循环）。
+- **内置技能**：init.sql 预置 7 个全局技能（`user_id=0`）：API 文档生成、代码解释、代码审查、SQL 生成、文本摘要、技术冷知识、翻译，登录即可在对话中调用。
+- **管理面**：CRUD + 导出 Markdown + 试跑（填参预览模板替换结果与模型输出），页面变更即时重建索引。
 

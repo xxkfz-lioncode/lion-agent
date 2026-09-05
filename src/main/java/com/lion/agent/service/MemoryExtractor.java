@@ -80,7 +80,7 @@ public class MemoryExtractor {
                 items.add(new MemoryService.MemoryItem(content, importance));
             }
             if (items.isEmpty()) {
-                log.info("[Memory] 本轮对话无可抽取的长期记忆");
+                log.warn("[Memory] 本轮对话无可抽取的长期记忆");
             } else {
                 log.info("[Memory] 抽取到 {} 条长期记忆", items.size());
             }
