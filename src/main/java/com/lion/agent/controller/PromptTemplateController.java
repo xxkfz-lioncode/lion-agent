@@ -2,9 +2,9 @@ package com.lion.agent.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.lion.agent.common.Result;
-import com.lion.agent.dto.PromptTemplateRequest;
+import com.lion.agent.model.dto.PromptTemplateRequest;
 import com.lion.agent.service.PromptTemplateService;
-import com.lion.agent.vo.PromptTemplateVo;
+import com.lion.agent.model.vo.PromptTemplateVo;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;

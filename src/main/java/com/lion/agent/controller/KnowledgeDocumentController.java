@@ -4,7 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import com.lion.agent.common.PageResult;
 import com.lion.agent.common.Result;
-import com.lion.agent.entity.KnowledgeDocument;
+import com.lion.agent.model.entity.KnowledgeDocument;
 import com.lion.agent.service.KnowledgeDocumentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

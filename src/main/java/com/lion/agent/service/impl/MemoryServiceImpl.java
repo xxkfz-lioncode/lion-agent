@@ -3,7 +3,7 @@ package com.lion.agent.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lion.agent.common.enums.MemoryType;
 import com.lion.agent.common.enums.VectorType;
-import com.lion.agent.entity.AiMemory;
+import com.lion.agent.model.entity.AiMemory;
 import com.lion.agent.mapper.AiMemoryMapper;
 import com.lion.agent.service.MemoryExtractor;
 import com.lion.agent.service.MemoryService;

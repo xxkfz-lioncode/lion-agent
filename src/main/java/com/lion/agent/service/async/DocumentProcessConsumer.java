@@ -2,7 +2,7 @@ package com.lion.agent.service.async;
 
 import com.lion.agent.common.async.AbstractRedisTaskConsumer;
 import com.lion.agent.common.async.RedisTaskQueue;
-import com.lion.agent.dto.DocumentProcessTask;
+import com.lion.agent.model.dto.DocumentProcessTask;
 import com.lion.agent.service.KnowledgeDocumentService;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;

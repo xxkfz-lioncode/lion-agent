@@ -2,7 +2,7 @@ package com.lion.agent.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.lion.agent.common.Result;
-import com.lion.agent.entity.AiMemory;
+import com.lion.agent.model.entity.AiMemory;
 import com.lion.agent.service.MemoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

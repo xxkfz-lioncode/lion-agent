@@ -9,6 +9,7 @@ import TokenUsageView from '../views/TokenUsageView.vue'
 import MemoryView from '../views/MemoryView.vue'
 import SkillManage from '../views/skill/ManageView.vue'
 import PromptManage from '../views/prompt/PromptManageView.vue'
+import McpManage from '../views/mcp/McpManageView.vue'
 
 const routes = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true, title: '登录' } },
@@ -21,6 +22,7 @@ const routes = [
   { path: '/memory', name: 'memory', component: MemoryView, meta: { title: '长期记忆' } },
   { path: '/skill/manage', name: 'skill-manage', component: SkillManage, meta: { title: '技能管理' } },
   { path: '/prompt/manage', name: 'prompt-manage', component: PromptManage, meta: { title: '提示词模板' } },
+  { path: '/mcp/manage', name: 'mcp-manage', component: McpManage, meta: { title: 'MCP 服务管理' } },
   { path: '/usage', name: 'usage', component: TokenUsageView, meta: { title: '用量统计' } }
 ]
 

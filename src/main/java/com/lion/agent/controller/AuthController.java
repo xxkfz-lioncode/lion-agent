@@ -1,11 +1,11 @@
 package com.lion.agent.controller;
 
 import com.lion.agent.common.Result;
-import com.lion.agent.dto.LoginRequest;
-import com.lion.agent.dto.RegisterRequest;
-import com.lion.agent.dto.UpdatePasswordRequest;
-import com.lion.agent.dto.UpdateProfileRequest;
-import com.lion.agent.entity.User;
+import com.lion.agent.model.dto.LoginRequest;
+import com.lion.agent.model.dto.RegisterRequest;
+import com.lion.agent.model.dto.UpdatePasswordRequest;
+import com.lion.agent.model.dto.UpdateProfileRequest;
+import com.lion.agent.model.entity.User;
 import com.lion.agent.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

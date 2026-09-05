@@ -63,6 +63,7 @@ const modules = [
   { path: '/memory', icon: '🧠', title: '长期记忆', desc: '查看与管理 Agent 长期记忆' },
   { path: '/skill/manage', icon: '🧩', title: '技能管理', desc: '配置与编排 Agent 技能' },
   { path: '/prompt/manage', icon: '📝', title: '提示词模板', desc: '查看与管理系统提示词模板' },
+  { path: '/mcp/manage', icon: '🔌', title: 'MCP 服务', desc: '管理外部 MCP Server 与工具测试' },
   { path: '/usage', icon: '📊', title: '用量统计', desc: '查看 Token 消耗与调用情况' }
 ]
 

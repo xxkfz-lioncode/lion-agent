@@ -2,8 +2,8 @@ package com.lion.agent.advisor;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lion.agent.config.PromptConfig;
-import com.lion.agent.entity.ChatMessage;
-import com.lion.agent.entity.ConversationSummary;
+import com.lion.agent.model.entity.ChatMessage;
+import com.lion.agent.model.entity.ConversationSummary;
 import com.lion.agent.mapper.ChatMessageMapper;
 import com.lion.agent.mapper.ConversationSummaryMapper;
 import org.jetbrains.annotations.NotNull;

@@ -1,8 +1,8 @@
 package com.lion.agent.service;
 
 import com.lion.agent.common.PageResult;
-import com.lion.agent.entity.TokenUsage;
-import com.lion.agent.vo.TokenUsageVO;
+import com.lion.agent.model.entity.TokenUsage;
+import com.lion.agent.model.vo.TokenUsageVO;
 
 import java.util.Map;
 

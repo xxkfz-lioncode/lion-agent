@@ -448,3 +448,40 @@ CREATE TABLE ai_prompt_template (
     UNIQUE KEY uk_file_name (file_name)
 ) ENGINE = InnoDB COMMENT ='提示词模板表';
 
+-- ---------------------------------------------------------------------
+-- MCP 服务表（ai_mcp_server）
+-- 管理外部 MCP Server（SSE 协议）连接，启动时自动连接 enabled=1 的记录
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS ai_mcp_server;
+CREATE TABLE ai_mcp_server (
+    id            BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+    name          VARCHAR(128)  NOT NULL COMMENT '服务别名',
+    url           VARCHAR(1024) NOT NULL COMMENT 'MCP Server URL（SSE endpoint）',
+    transport_type VARCHAR(32)  NOT NULL DEFAULT 'sse' COMMENT '传输协议：sse',
+    enabled       TINYINT       NOT NULL DEFAULT 1 COMMENT '是否启用：1启用 0禁用',
+    status        VARCHAR(32)   NOT NULL DEFAULT 'disconnected' COMMENT '连接状态：connected/disconnected/error',
+    error_msg     VARCHAR(1024) DEFAULT NULL COMMENT '最近一次连接错误信息',
+    description   VARCHAR(512)  DEFAULT NULL COMMENT '服务描述',
+    created_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id)
+) ENGINE = InnoDB COMMENT ='MCP 服务表';
+
+-- ---------------------------------------------------------------------
+-- MCP 服务工具表（ai_mcp_server_tool）
+-- 缓存每个 MCP Server 发现的工具定义，供前端展示和测试调用
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS ai_mcp_server_tool;
+CREATE TABLE ai_mcp_server_tool (
+    id            BIGINT         NOT NULL AUTO_INCREMENT COMMENT '主键',
+    server_id     BIGINT         NOT NULL COMMENT '所属 MCP Server ID',
+    name          VARCHAR(256)   NOT NULL COMMENT '工具名',
+    description   VARCHAR(2048)  DEFAULT NULL COMMENT '工具描述',
+    input_schema  JSON           DEFAULT NULL COMMENT '工具输入参数 JSON Schema',
+    created_at    DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at    DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_server_tool_name (server_id, name),
+    KEY idx_server_id (server_id)
+) ENGINE = InnoDB COMMENT ='MCP 服务工具表';
+

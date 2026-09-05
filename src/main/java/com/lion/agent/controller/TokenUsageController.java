@@ -4,7 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.lion.agent.common.PageResult;
 import com.lion.agent.common.Result;
 import com.lion.agent.service.TokenUsageService;
-import com.lion.agent.vo.TokenUsageVO;
+import com.lion.agent.model.vo.TokenUsageVO;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;

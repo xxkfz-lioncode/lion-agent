@@ -2,8 +2,8 @@ package com.lion.agent.controller;
 
 import com.lion.agent.common.PageResult;
 import com.lion.agent.common.Result;
-import com.lion.agent.entity.ChatMessage;
-import com.lion.agent.entity.Conversation;
+import com.lion.agent.model.entity.ChatMessage;
+import com.lion.agent.model.entity.Conversation;
 import com.lion.agent.service.ChatService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

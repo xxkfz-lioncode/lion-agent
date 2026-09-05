@@ -3,7 +3,7 @@ package com.lion.agent.advisor;
 import cn.dev33.satoken.stp.StpUtil;
 import com.lion.agent.common.constants.AdvisorConstants;
 import com.lion.agent.common.enums.ChatType;
-import com.lion.agent.entity.TokenUsage;
+import com.lion.agent.model.entity.TokenUsage;
 import com.lion.agent.service.TokenUsageService;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;

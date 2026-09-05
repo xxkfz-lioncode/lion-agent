@@ -1,6 +1,6 @@
 package com.lion.agent.tools;
 
-import com.lion.agent.entity.User;
+import com.lion.agent.model.entity.User;
 import com.lion.agent.mapper.UserMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.RequiredArgsConstructor;

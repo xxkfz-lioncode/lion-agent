@@ -2,9 +2,9 @@ package com.lion.agent.controller;
 
 import cn.dev33.satoken.annotation.SaIgnore;
 import com.lion.agent.common.Result;
-import com.lion.agent.dto.ChatRequest;
+import com.lion.agent.model.dto.ChatRequest;
 import com.lion.agent.service.ChatService;
-import com.lion.agent.vo.ChatResult;
+import com.lion.agent.model.vo.ChatResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;

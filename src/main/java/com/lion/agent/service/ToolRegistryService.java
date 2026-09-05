@@ -1,10 +1,13 @@
 package com.lion.agent.service;
 
 import cn.dev33.satoken.stp.StpInterface;
+import cn.hutool.json.JSONUtil;
+import com.lion.agent.annotation.ToolPermission;
+import com.lion.agent.model.vo.LocalToolVo;
 import com.lion.agent.common.enums.VectorType;
+import com.lion.agent.event.McpServerChangedEvent;
 import com.lion.agent.tools.DateTools;
 import com.lion.agent.tools.StarFortuneTools;
-import com.lion.agent.annotation.ToolPermission;
 import com.lion.agent.tools.TimeLimiterTools;
 import com.lion.agent.tools.UserTools;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
@@ -14,6 +17,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.ObjectProvider;
@@ -90,6 +94,9 @@ public class ToolRegistryService {
     /** 自定义技能注册中心：用户页面维护的提示词型技能，检索命中后并入候选池 */
     private final SkillToolRegistry skillToolRegistry;
 
+    /** 动态 MCP 服务注册中心：页面新增/启用/禁用外部 MCP Server 后实时同步工具池 */
+    private final McpServerService mcpServerService;
+
     public final ToolCallback weatherTool;
     public final ToolCallback holidayCountdownTool;
 
@@ -104,6 +111,28 @@ public class ToolRegistryService {
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
         // 1. 常驻工具：生成 callback 直接持有，不建向量索引（不参与检索）
+        buildAlwaysOnTools();
+        // 2. 可检索工具 + MCP 远程工具 + 向量索引
+        rebuildIndex();
+    }
+
+    /**
+     * 监听 MCP 服务变更事件：页面新增/启用/禁用/删除外部 MCP Server 后，
+     * 重新把当前所有可用的 MCP 回调纳入工具池并重建向量索引。
+     */
+    @EventListener(McpServerChangedEvent.class)
+    public synchronized void onMcpServerChanged(McpServerChangedEvent event) {
+        log.info("收到 MCP 服务变更事件，重建工具索引");
+        rebuildIndex();
+    }
+
+    /**
+     * 构建常驻工具回调（只在启动时执行一次，内容不变）
+     */
+    private void buildAlwaysOnTools() {
+        if (!alwaysOnCallbacks.isEmpty()) {
+            return;
+        }
         for (Class<?> toolClass : ALWAYS_ON_TOOLS) {
             alwaysOnCallbacks.addAll(Arrays.asList(ToolCallbacks.from(applicationContext.getBean(toolClass))));
         }
@@ -113,9 +142,18 @@ public class ToolRegistryService {
         alwaysOnCallbacks.add(weatherTool);
         alwaysOnCallbacks.add(holidayCountdownTool);
         log.info("常驻工具注册 {} 个（不走检索）", alwaysOnCallbacks.size());
+    }
 
-        // 2. 可检索工具：反射生成方法级 callback，构建本地索引 + 向量索引文档
+    /**
+     * 重建可检索工具本地索引 + 向量索引。
+     * 可由 ApplicationReadyEvent 或 McpServerChangedEvent 触发。
+     */
+    private synchronized void rebuildIndex() {
+        callbackIndex.clear();
+        permissionIndex.clear();
+
         List<Document> indexDocs = new ArrayList<>();
+        // 1. 本地可检索工具
         for (Class<?> toolClass : RETRIEVABLE_TOOLS) {
             String permission = resolvePermission(toolClass);
             for (ToolCallback cb : ToolCallbacks.from(applicationContext.getBean(toolClass))) {
@@ -126,24 +164,45 @@ public class ToolRegistryService {
             }
         }
 
+        // 2. application.yml 中静态配置的 MCP 远程工具
         ToolCallbackProvider mcpProvider = mcpToolCallbackProvider.getIfAvailable();
         if (mcpProvider == null) {
             log.info("MCP 客户端未启用（MCP_ENABLED=false），不接入远程工具");
         } else {
-            ToolCallback[] mcpCallbacks = mcpProvider.getToolCallbacks();
-            for (ToolCallback raw : mcpCallbacks) {
+            try {
+                ToolCallback[] mcpCallbacks = mcpProvider.getToolCallbacks();
+                for (ToolCallback raw : mcpCallbacks) {
+                    String toolName = raw.getToolDefinition().name();
+                    // MCP 工具本地无 @ToolPermission，默认公开（permission=''）；要收紧需在配置层统一赋权
+                    callbackIndex.put(toolName, raw);
+                    permissionIndex.put(toolName, "");
+                    indexDocs.add(toIndexDocument(toolName, raw, ""));
+                }
+                log.info("静态 MCP 远程工具接入 {} 个（熔断包装 + 向量索引）", mcpCallbacks.length);
+            } catch (Exception e) {
+                // 静态 MCP Server 不可达/协议不匹配（如 404 /sse）时只跳过远程工具：
+                // 单个外部服务故障不应拖垮应用启动（与下方动态 MCP 接入策略一致）
+                log.error("静态 MCP 远程工具接入失败，跳过（不影响启动）：{}", e.getMessage());
+            }
+        }
+
+        // 3. 页面动态维护的 MCP 远程工具
+        try {
+            List<ToolCallback> dynamicMcpCallbacks = mcpServerService.getAllToolCallbacks();
+            for (ToolCallback raw : dynamicMcpCallbacks) {
                 String toolName = raw.getToolDefinition().name();
-                // MCP 工具本地无 @ToolPermission，默认公开（permission=''）；要收紧需在配置层统一赋权
                 callbackIndex.put(toolName, raw);
                 permissionIndex.put(toolName, "");
                 indexDocs.add(toIndexDocument(toolName, raw, ""));
             }
-            log.info("MCP 远程工具接入 {} 个（熔断包装 + 向量索引）", mcpCallbacks.length);
+            log.info("动态 MCP 远程工具接入 {} 个", dynamicMcpCallbacks.size());
+        } catch (Exception e) {
+            log.warn("动态 MCP 远程工具接入失败：{}", e.getMessage());
         }
 
         log.info("可检索工具索引 {} 个（方法级）：{}", callbackIndex.size(), callbackIndex.keySet());
 
-        // 3. 全量重建向量索引：先按 type 清旧再分批写新（覆盖语义，不留脏数据）
+        // 4. 全量重建向量索引：先按 type 清旧再分批写新（覆盖语义，不留脏数据）
         try {
             vectorStore.delete("type == '" + VectorType.TOOL_INDEX.getValue() + "'");
             for (int i = 0; i < indexDocs.size(); i += ADD_BATCH_SIZE) {
@@ -154,8 +213,55 @@ public class ToolRegistryService {
             // 降级：索引建不上（Milvus 挂了/embedding 超时），selectTools 检索时同样会失败并走全量降级
             log.warn("工具向量索引构建失败（检索将降级为常驻+全量注册）：{}", e.getMessage());
         }
+    }
 
+    /**
+     * 列出所有本地注册的工具（@Tool 方法 + 手工 ToolCallback），按工具名去重。
+     * 供 MCP 管理页"本地工具"Tab 展示。
+     */
+    public List<LocalToolVo> listLocalTools() {
+        Map<String, LocalToolVo> result = new LinkedHashMap<>();
 
+        // 1. 常驻工具（@Tool 方法）
+        for (Class<?> toolClass : ALWAYS_ON_TOOLS) {
+            Object bean = applicationContext.getBean(toolClass);
+            for (ToolCallback cb : ToolCallbacks.from(bean)) {
+                ToolDefinition def = cb.getToolDefinition();
+                result.put(def.name(), toLocalToolVo(def, toolClass.getSimpleName()));
+            }
+        }
+
+        // 2. 可检索工具（@Tool 方法）
+        for (Class<?> toolClass : RETRIEVABLE_TOOLS) {
+            Object bean = applicationContext.getBean(toolClass);
+            for (ToolCallback cb : ToolCallbacks.from(bean)) {
+                ToolDefinition def = cb.getToolDefinition();
+                result.put(def.name(), toLocalToolVo(def, toolClass.getSimpleName()));
+            }
+        }
+
+        // 3. 手工构建的工具回调
+        addManualTool(result, weatherTool, "manual:weatherTool");
+        addManualTool(result, holidayCountdownTool, "manual:holidayCountdownTool");
+
+        return new ArrayList<>(result.values());
+    }
+
+    private void addManualTool(Map<String, LocalToolVo> result, ToolCallback cb, String source) {
+        if (cb == null) {
+            return;
+        }
+        ToolDefinition def = cb.getToolDefinition();
+        result.putIfAbsent(def.name(), toLocalToolVo(def, source));
+    }
+
+    private LocalToolVo toLocalToolVo(ToolDefinition def, String source) {
+        LocalToolVo vo = new LocalToolVo();
+        vo.setName(def.name());
+        vo.setDescription(def.description());
+        vo.setInputSchema(JSONUtil.toJsonStr(def.inputSchema()));
+        vo.setSource(source);
+        return vo;
     }
 
     /**

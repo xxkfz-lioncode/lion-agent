@@ -1,10 +1,10 @@
 package com.lion.agent.service;
 
-import com.lion.agent.dto.LoginRequest;
-import com.lion.agent.dto.RegisterRequest;
-import com.lion.agent.dto.UpdatePasswordRequest;
-import com.lion.agent.dto.UpdateProfileRequest;
-import com.lion.agent.entity.User;
+import com.lion.agent.model.dto.LoginRequest;
+import com.lion.agent.model.dto.RegisterRequest;
+import com.lion.agent.model.dto.UpdatePasswordRequest;
+import com.lion.agent.model.dto.UpdateProfileRequest;
+import com.lion.agent.model.entity.User;
 
 import java.util.Map;
 

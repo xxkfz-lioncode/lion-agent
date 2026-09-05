@@ -2,7 +2,7 @@ package com.lion.agent.service;
 
 import com.lion.agent.common.enums.ChatIntent;
 import com.lion.agent.config.PromptConfig;
-import com.lion.agent.entity.KnowledgeBase;
+import com.lion.agent.model.entity.KnowledgeBase;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;

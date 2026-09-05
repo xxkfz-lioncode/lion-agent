@@ -1,10 +1,10 @@
 package com.lion.agent.service;
 
 import com.lion.agent.common.PageResult;
-import com.lion.agent.dto.ChatRequest;
-import com.lion.agent.entity.ChatMessage;
-import com.lion.agent.entity.Conversation;
-import com.lion.agent.vo.ChatResult;
+import com.lion.agent.model.dto.ChatRequest;
+import com.lion.agent.model.entity.ChatMessage;
+import com.lion.agent.model.entity.Conversation;
+import com.lion.agent.model.vo.ChatResult;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 

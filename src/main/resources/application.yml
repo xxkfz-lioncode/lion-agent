@@ -36,13 +36,21 @@ spring:
         toolcallback:
           enabled: true
         request-timeout: 120s
+        # 静态 MCP 连接按协议分类（2.0 语法）：
+        # - streamable-http：Streamable HTTP / Stateless 服务（默认端点 /mcp）
+        # - sse：旧式 SSE 服务（默认端点 /sse），若对方只暴露 /mcp 仍配在 sse 下会 404
+        # 注：若该服务已改由页面「MCP Server 管理」动态维护，可整段注释，避免启动时重复接入同一服务
+        streamable-http:
+          connections:
+            # 对方 MCP Server 地址（Streamable HTTP），调用旅行规划
+            travel-planner:
+              url: http://localhost:8083
+              endpoint: /mcp
 #        sse:
 #          connections:
-             # 对方的 MCP Server 地址，调用商品分析
+            # 旧式 SSE 服务示例（仅对方只支持 SSE 时才用 sse 块）
 #             graph-analysis:
 #               url: http://localhost:8082
-#             travel-planner:
-#               url: http://localhost:8083
 
 
 # ==================== MyBatis-Plus（公共） ====================

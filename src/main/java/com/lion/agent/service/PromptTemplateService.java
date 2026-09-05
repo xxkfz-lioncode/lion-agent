@@ -1,7 +1,7 @@
 package com.lion.agent.service;
 
-import com.lion.agent.dto.PromptTemplateRequest;
-import com.lion.agent.vo.PromptTemplateVo;
+import com.lion.agent.model.dto.PromptTemplateRequest;
+import com.lion.agent.model.vo.PromptTemplateVo;
 
 import java.util.List;
 

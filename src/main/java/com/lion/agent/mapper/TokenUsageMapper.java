@@ -1,7 +1,7 @@
 package com.lion.agent.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.lion.agent.entity.TokenUsage;
+import com.lion.agent.model.entity.TokenUsage;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
