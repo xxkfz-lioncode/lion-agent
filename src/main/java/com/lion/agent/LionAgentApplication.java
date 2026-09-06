@@ -12,6 +12,7 @@ import java.time.Instant;
 
 /**
  * Lion Agent 智能问答系统启动类
+ * Spring AI 中文文档：https://www.spring-doc.cn/spring-ai/2.0.0-SNAPSHOT/getting-started.html
  */
 @Slf4j
 @SpringBootApplication
