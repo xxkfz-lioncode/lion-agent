@@ -26,7 +26,7 @@ public class LionAgentApplication {
     }
 
     /**
-     * 输出启动信息：应用名、运行环境、服务地址、启动耗时、JDK 版本
+     * 输出启动信息：应用名、运行环境、服务地址、接口文档地址、启动耗时、JDK 版本
      */
     private static void printStartupInfo(ConfigurableApplicationContext context, Instant start) {
         ConfigurableEnvironment env = context.getEnvironment();
@@ -40,6 +40,12 @@ public class LionAgentApplication {
         double costSeconds = Duration.between(start, Instant.now()).toMillis() / 1000.0;
         String cost = String.format("%.2f s", costSeconds);
         String jdk = System.getProperty("java.version");
+        // springdoc.swagger-ui.enabled 在 dev 默认为 true，prod 显式关闭
+        boolean docEnabled = env.getProperty("springdoc.swagger-ui.enabled", Boolean.class, true);
+        String docInfo = docEnabled
+                ? String.format("接口文档  : http://localhost:%s%s/swagger-ui/index.html%n"
+                        + "  接口JSON : http://localhost:%s%s/v3/api-docs", port, contextPath, port, contextPath)
+                : "  接口文档  : 已关闭（prod 环境默认禁用）";
 
         log.info("""
                 
@@ -49,9 +55,10 @@ public class LionAgentApplication {
                   应用名称  : {}
                   运行环境  : {}
                   服务地址  : http://localhost:{}{}
+                  {}
                   启动耗时  : {}
                   JDK 版本 : {}
                 ==========================================================
-                """, appName, appName, profiles, port, contextPath, cost, jdk);
+                """, appName, appName, profiles, port, contextPath, docInfo, cost, jdk);
     }
 }
