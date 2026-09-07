@@ -3,6 +3,7 @@ package com.lion.agent.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lion.agent.common.enums.MemoryType;
 import com.lion.agent.common.enums.VectorType;
+import com.lion.agent.common.util.LazyMilvusVectorStore;
 import com.lion.agent.model.entity.AiMemory;
 import com.lion.agent.mapper.AiMemoryMapper;
 import com.lion.agent.service.MemoryExtractor;
@@ -71,34 +72,26 @@ public class MemoryServiceImpl implements MemoryService {
     @Value("${lion.memory.search-top-k:5}")
     private int searchTopK;
 
-    /** 懒加载的 Milvus 向量存储（首次使用时初始化） */
-    private volatile MilvusVectorStore memoryStore;
-    private volatile boolean storeReady = false;
+    /** 懒加载的 Milvus 向量存储持有器（首次使用时初始化建库；初始化失败即抛，由上层兜底） */
+    private volatile LazyMilvusVectorStore memoryStore;
 
     /**
-     * 懒加载获取 Milvus 向量存储（仿 QaCacheService）
+     * 懒加载获取 Milvus 向量存储（建表逻辑统一收敛于 {@link LazyMilvusVectorStore}，
+     * 此处仅在首次访问时组装参数，@Value 注入完成后才可用）
      */
     private MilvusVectorStore store() {
-        if (!storeReady) {
+        LazyMilvusVectorStore holder = memoryStore;
+        if (holder == null) {
             synchronized (this) {
-                if (!storeReady) {
-                    MilvusVectorStore store = MilvusVectorStore.builder(milvusClient, embeddingModel)
-                            .collectionName(collectionName)
-                            .embeddingDimension(embeddingDimension)
-                            .initializeSchema(true)
-                            .build();
-                    try {
-                        store.afterPropertiesSet();
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                    this.memoryStore = store;
-                    this.storeReady = true;
-                    log.info("[Memory] Milvus collection {} 初始化完成", collectionName);
+                holder = memoryStore;
+                if (holder == null) {
+                    holder = new LazyMilvusVectorStore(milvusClient, embeddingModel,
+                            collectionName, embeddingDimension, "长期记忆");
+                    memoryStore = holder;
                 }
             }
         }
-        return memoryStore;
+        return holder.get();
     }
 
     // ==================== 写入链路 ====================
@@ -335,7 +328,7 @@ public class MemoryServiceImpl implements MemoryService {
             return items;
         } catch (Exception e) {
             // 检索失败（如 collection 不存在/连接异常）：降级跳过注入，不影响主链路
-            storeReady = false;
+            memoryStore.reset();
             log.warn("[Memory] 检索失败，跳过长期记忆注入 userId={} error={}", userId, e.getMessage());
             return List.of();
         }

@@ -1,6 +1,7 @@
 package com.lion.agent.service;
 
 import com.lion.agent.common.enums.VectorType;
+import com.lion.agent.common.util.LazyMilvusVectorStore;
 import io.milvus.client.MilvusServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -66,11 +67,8 @@ public class QaCacheService {
     @Value("${lion.qa-cache.top-k:1}")
     private int topK;
 
-    /** 语义缓存专用向量存储（懒加载，独立 collection，非 Spring Bean） */
-    private volatile MilvusVectorStore cacheStore;
-
-    /** 向量库是否已就绪（collection 已建好并加载）。操作失败会置 false，下次自动重建 */
-    private volatile boolean storeReady = false;
+    /** 语义缓存专用向量存储持有器（懒加载建库，独立 collection，非 Spring Bean） */
+    private volatile LazyMilvusVectorStore cacheStore;
 
     /**
      * 懒加载获取缓存向量库：首次调用（或上次失败后）才构建并建表。
@@ -79,30 +77,23 @@ public class QaCacheService {
      * （createCollection + createIndex + loadCollection）发生在 {@code afterPropertiesSet()}
      * 中，这是 Spring bean 生命周期回调，只有容器管理的 bean 才会被自动调用；而本类刻意不把
      * 它注册成 Bean（否则会顶掉自动配置的默认 VectorStore、破坏知识库 RAG），所以必须手动触发。
-     * 封装成懒加载 getter 后，业务方法无需任何前置初始化步骤，失败也在下次调用时自动自愈。</p>
+     * 懒加载 + 建表 + 失败降级/重试统一收敛在 {@link LazyMilvusVectorStore}，此处仅在首次访问时
+     * 组装参数（@Value 注入完成后才可用）；业务方法无需任何前置初始化步骤，失败也会在下次
+     * 调用时自动自愈。</p>
      */
     private MilvusVectorStore store() {
-        if (!storeReady) {
+        LazyMilvusVectorStore holder = cacheStore;
+        if (holder == null) {
             synchronized (this) {
-                if (!storeReady) {
-                    try {
-                        MilvusVectorStore store = MilvusVectorStore.builder(milvusClient, embeddingModel)
-                                .collectionName(collectionName)
-                                .embeddingDimension(embeddingDimension)
-                                .initializeSchema(true)
-                                .build();
-                        store.afterPropertiesSet();
-                        this.cacheStore = store;
-                        this.storeReady = true;
-                        log.info("语义缓存向量库已就绪 collection={} dim={} threshold={}",
-                                collectionName, embeddingDimension, threshold);
-                    } catch (Exception e) {
-                        log.warn("语义缓存向量库初始化失败 collection={}（下次使用自动重试建表）", collectionName, e);
-                    }
+                holder = cacheStore;
+                if (holder == null) {
+                    holder = new LazyMilvusVectorStore(milvusClient, embeddingModel,
+                            collectionName, embeddingDimension, "语义缓存");
+                    cacheStore = holder;
                 }
             }
         }
-        return cacheStore;
+        return holder.getOrNull();
     }
 
     /** 命中结果：answer 为历史回答全文，askedAt 为提问时间描述（如"3个月前"） */
@@ -145,7 +136,7 @@ public class QaCacheService {
             return new Hit(answer, formatAskedAt(askedAtEpoch));
         } catch (Exception e) {
             // 降级：Milvus 不可用时跳过缓存，走正常模型调用
-            storeReady = false; // 检索失败大概率是 collection 丢失 / Milvus 重启，下次自动重建
+            cacheStore.reset(); // 检索失败大概率是 collection 丢失 / Milvus 重启，下次自动重建
             log.warn("语义缓存检索失败（跳过缓存）", e);
             return null;
         }
@@ -185,7 +176,7 @@ public class QaCacheService {
             log.info("已写入语义缓存 userId={} docId={} question={}", userId, docId, truncate(question, 30));
         } catch (Exception e) {
             // 打完整堆栈，方便定位（doc_id 超长 / 维度不匹配 / embedding 失败等）
-            storeReady = false; // 例如 collection 被删 / Milvus 重启，下次写入时重新建表
+            cacheStore.reset(); // 例如 collection 被删 / Milvus 重启，下次写入时重新建表
             log.error("写入语义缓存失败 userId={} question={}", userId, truncate(question, 30), e);
         }
     }
@@ -198,7 +189,7 @@ public class QaCacheService {
             store().delete("type == '" + VectorType.QA_CACHE.getValue() + "' && userId == '" + userId + "'");
             log.info("已清理语义缓存 userId={}", userId);
         } catch (Exception e) {
-            storeReady = false;
+            cacheStore.reset();
             log.warn("清理语义缓存失败", e);
         }
     }

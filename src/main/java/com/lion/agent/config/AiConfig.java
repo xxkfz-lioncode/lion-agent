@@ -13,6 +13,11 @@ import com.lion.agent.service.TokenUsageService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
+import org.springframework.ai.chat.client.advisor.ToolCallingAdvisor;
+import org.springframework.ai.chat.client.advisor.toolsearch.ToolSearchToolCallingAdvisor;
+import org.springframework.ai.chat.client.advisor.toolsearch.autoconfigure.ToolSearchAdvisorProperties;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.tool.toolsearch.ToolIndex;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
@@ -107,6 +112,41 @@ public class AiConfig {
                         MessageChatMemoryAdvisor.builder(new ReadLimitChatMemory(chatMemory, 30)).build()
                 );
         return builder.build();
+    }
+
+    /**
+     * ToolSearch 版 ToolCallingAdvisor.Builder（修复 2.0.0 自动配置注册顺序问题）。
+     * <p>
+     * Spring AI 2.0.0 中 {@code ChatClientAutoConfiguration} 与
+     * {@code ToolSearchAdvisorAutoConfiguration} 都声明了同名 @Bean 方法
+     * {@code toolCallingAdvisorBuilder}（均带 {@code @ConditionalOnMissingBean}），
+     * 注册顺序决定谁生效。实际运行时 ChatClient 自带"普通版"（不含 ToolIndex，
+     * 不做工具搜索）先注册，ToolSearch 版被跳过 —— 导致容器中唯一的
+     * {@link ToolCallingAdvisor.Builder} 不是工具搜索版，{@code chatClientBuilder}
+     * 内部 {@code ObjectProvider#getIfAvailable()} 拿到的自然也不是
+     * {@link ToolSearchToolCallingAdvisor}（断点打不到、工具索引从不写入）。
+     * <p>
+     * 这里主动声明一个 ToolSearch 版 {@link ToolCallingAdvisor.Builder} Bean：
+     * 用户配置类先于自动配置解析注册 Bean 定义，两个自动配置的同名方法都会因
+     * {@code @ConditionalOnMissingBean} 让路跳过，{@code chatClientBuilder} 即可拿到本 Bean，
+     * 自动挂上 {@link ToolSearchToolCallingAdvisor}（无需改动 {@link #chatClient} 的装配）。
+     * <p>
+     * 注意：依赖 {@code spring.ai.chat.client.tool-search-advisor.enabled=true} 时
+     * 自动创建的 {@link ToolIndex}（vector 版）与 {@link ToolSearchAdvisorProperties}，
+     * 关闭该开关会导致启动失败。
+     */
+    @Bean
+    public ToolCallingAdvisor.Builder<?> toolSearchToolCallingAdvisorBuilder(ToolIndex toolIndex,
+                                                                             ToolCallingManager toolCallingManager,
+                                                                             ToolSearchAdvisorProperties properties) {
+        ToolSearchToolCallingAdvisor.Builder<?> builder = ToolSearchToolCallingAdvisor.builder()
+                .toolIndex(toolIndex)
+                .toolCallingManager(toolCallingManager);
+        // max-results 走 yml 配置（spring.ai.chat.client.tool-search-advisor.max-results），未配置则为 null 不设置
+        if (properties.getMaxResults() != null) {
+            builder.maxResults(properties.getMaxResults());
+        }
+        return builder;
     }
 
     /**

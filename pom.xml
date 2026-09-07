@@ -103,6 +103,11 @@
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
             <version>${spring-ai.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-tool-search-advisor</artifactId>
+            <version>${spring-ai.version}</version>
+        </dependency>
 
         <!-- Resilience4j 熔断器：防止外部服务故障级联拖垮整个应用 -->
         <dependency>

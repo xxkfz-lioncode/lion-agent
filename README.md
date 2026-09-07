@@ -136,6 +136,8 @@ mysql -uxxkfz -p lion_agent < src/main/resources/db/init.sql
 - **集合（collection）与维度对齐（关键）**：
   - `lion_agent_knowledge`：知识库文档向量，**1024 维，COSINE 度量**——必须与 DashScope `text-embedding-v3` 输出维度一致（已固化在 yml `embedding-dimension: 1024`）；
   - `lion_agent_qa_cache`：语义缓存专用集合（yml `lion.qa-cache.collection-name`），与知识库物理隔离。
+  - `lion_agent_tool_index`：工具索引专用集合（yml `lion.tool-index.collection-name`），启动/工具变更时按 type 清空重建，与知识库物理隔离。
+  - `lion_agent_memory`：长期记忆专用集合（yml `lion.memory.collection-name`），与知识库物理隔离。
   - 若手动预建过集合，需保证维度/度量一致，否则写入报错。
 - 验证：`curl http://localhost:9091/healthz` 返回 `OK`；或用 Attu 管理台 `http://localhost:8000` 查看集合数据。
 - 升级 Milvus 大版本前先确认索引类型（本项目使用 AUTOINDEX / COSINE）兼容。
@@ -410,7 +412,7 @@ ChatMemory messageWindowChatMemory(JdbcChatMemoryRepository repository) {
 - **权限过滤**：`@ToolPermission` 标注的工具按权限码过滤候选池（当前未实现 `StpInterface`，默认全部公开，接入后自动生效）。
 - **向量预筛**：用户 query 与工具描述算相似度 top-3 召回，再交给 function calling 精选。
 
-索引与本体分离：Milvus 中只存工具"目录索引"（`type=tool_index`，与知识库文档向量共用 collection 靠 type 隔离），工具实现仍是 Spring Bean。新增工具 = 写工具类 + 在 `ToolRegistryService` 登记，启动自动重建索引。
+索引与本体分离：Milvus 中只存工具"目录索引"（`type=tool_index`，独立 collection `lion_agent_tool_index`，与知识库/技能物理隔离——重建时按 type 清空不影响知识库向量），工具实现仍是 Spring Bean。新增工具 = 写工具类 + 在 `ToolRegistryService` 登记，启动自动重建索引。
 
 MCP：本服务内置 streamable-http Server（`/mcp`），同时可作为 SSE Client 接入第三方 MCP Server（如商品分析），接入的工具同样参与向量索引与熔断保护。
 

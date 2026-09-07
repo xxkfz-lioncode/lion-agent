@@ -53,6 +53,27 @@ spring:
 #               url: http://localhost:8082
 
 
+    chat:
+      client:
+        # ===== 工具搜索顾问（ToolSearchToolCallingAdvisor）=====
+        tool-search-advisor:
+          # 开启工具搜索顾问（对应 spring-ai-starter-tool-search-advisor）。
+          # 开启后自动创建 ToolIndex（按下方 tool-index-type 选择实现）与 ToolSearchAdvisorProperties；
+          # 注意：2.0.0 自动配置顺序问题导致它声明的 ToolSearch 版 Builder 会被 ChatClient 默认版顶掉，
+          # 需配合 AiConfig#toolSearchToolCallingAdvisorBuilder 手动注册才会真正生效，
+          # 因此关闭本开关会导致该 Bean 因缺少 ToolIndex/ToolSearchAdvisorProperties 启动失败。
+          enabled: true
+          # 工具索引类型（决定用哪种方式从工具库中检索候选工具）：
+          #   regex   - 正则匹配（轻量，无需外部依赖）
+          #   lucene  - 全文检索（本地 Lucene 索引）
+          #   vector  - 向量检索（基于嵌入语义召回，需配置向量库，当前使用 Milvus）
+          tool-index-type: vector
+          # 单次会话初始化时最多向工具索引召回并注入上下文的任务数上限，
+          # 用于控制“每次请求最多带几个候选工具”，避免工具过多撑大 prompt。
+          max-results: 5
+
+
+
 # ==================== MyBatis-Plus（公共） ====================
 mybatis-plus:
   configuration:
@@ -121,6 +142,14 @@ lion:
     # 攒批上报参数：缓冲内事件数达到 batch-size，或距上次发送超过 flush-interval-ms 即发送一次
     batch-size: 20
     flush-interval-ms: 5000
+
+  # 工具向量索引（RAG of Tools）：工具名+描述向量化，query 先按语义预筛 top-K 再走 function calling
+  tool-index:
+    # 工具索引专用 Milvus collection（与知识库 lion_agent_knowledge 物理隔离：
+    # 启动/工具变更时按 type 清空重建，若与知识库同库会误清知识库/技能向量）
+    collection-name: lion_agent_tool_index
+    # 向量维度，必须与 embedding 模型输出一致（text-embedding-v3 为 1024）
+    embedding-dimension: 1024
 
   # 语义缓存（方案 A）：重复问题直接复用历史回答（向量相似度命中），省 token 且秒回
   qa-cache:

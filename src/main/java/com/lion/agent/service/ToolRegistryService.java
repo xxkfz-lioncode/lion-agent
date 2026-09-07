@@ -5,22 +5,27 @@ import cn.hutool.json.JSONUtil;
 import com.lion.agent.annotation.ToolPermission;
 import com.lion.agent.model.vo.LocalToolVo;
 import com.lion.agent.common.enums.VectorType;
+import com.lion.agent.common.util.LazyMilvusVectorStore;
 import com.lion.agent.event.McpServerChangedEvent;
 import com.lion.agent.tools.DateTools;
 import com.lion.agent.tools.StarFortuneTools;
 import com.lion.agent.tools.TimeLimiterTools;
 import com.lion.agent.tools.UserTools;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.milvus.client.MilvusServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.milvus.MilvusVectorStore;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.EventListener;
@@ -47,7 +52,8 @@ import java.util.stream.Collectors;
  *         预筛成本仅一次 embedding（毫秒级）。</li>
  * </ol>
  *
- * <p>索引与本体分离（与知识库文档共用一个 Milvus collection，靠 metadata type 隔离）：
+ * <p>索引与本体分离（工具索引使用独立 Milvus collection lion_agent_tool_index，
+ * 与知识库 lion_agent_knowledge 物理隔离——启动/变更时按 type 清空重建，同库会误清知识库向量）：
  * Milvus 里只存"目录索引"（工具名 + 描述 + 权限码），工具实现还是 Spring 容器里的 Bean；
  * 两边通过工具名关联。加新工具 = 写工具类 + 登记进 RETRIEVABLE_TOOLS / ALWAYS_ON_TOOLS，
  * 启动自动重建索引。
@@ -72,7 +78,8 @@ public class ToolRegistryService {
     /** 可检索工具池：参与向量预筛的工具（新工具写完类在这里登记一行，索引和筛选全自动） */
     private static final List<Class<?>> RETRIEVABLE_TOOLS = List.of(StarFortuneTools.class);
 
-    private final VectorStore vectorStore;
+    private final MilvusServiceClient milvusClient;
+    private final EmbeddingModel embeddingModel;
     private final ApplicationContext applicationContext;
 
     /** 权限接口（可选依赖）：当前项目未实现 StpInterface 时为 null，全部工具公开；接入后自动按权限码过滤 */
@@ -96,6 +103,17 @@ public class ToolRegistryService {
 
     /** 动态 MCP 服务注册中心：页面新增/启用/禁用外部 MCP Server 后实时同步工具池 */
     private final McpServerService mcpServerService;
+
+    /** 工具索引专用 collection 名（与知识库 lion_agent_knowledge 物理隔离） */
+    @Value("${lion.tool-index.collection-name:lion_agent_tool_index}")
+    private String collectionName;
+
+    /** 向量维度，必须与 embedding 模型输出一致（text-embedding-v3 为 1024） */
+    @Value("${lion.tool-index.embedding-dimension:1024}")
+    private int embeddingDimension;
+
+    /** 工具索引专用向量存储持有器（懒加载建库，非 Spring Bean，避免顶掉知识库默认 VectorStore） */
+    private volatile LazyMilvusVectorStore toolVectorStore;
 
     public final ToolCallback weatherTool;
     public final ToolCallback holidayCountdownTool;
@@ -124,6 +142,30 @@ public class ToolRegistryService {
     public synchronized void onMcpServerChanged(McpServerChangedEvent event) {
         log.info("收到 MCP 服务变更事件，重建工具索引");
         rebuildIndex();
+    }
+
+    /**
+     * 懒加载获取工具索引向量库：首次调用（或上次失败后）才构建并建表。
+     *
+     * <p>为什么不直接用默认 {@link VectorStore} Bean：默认实例指向知识库 collection
+     * （lion_agent_knowledge，与知识库 RAG 共用），工具索引的"按 type 清空重建"会清掉
+     * 同库的知识库/技能向量；且工具索引与知识库的维度/生命周期都不同，应物理隔离。
+     * 这里刻意不注册成 Bean，而是懒加载持有独立 collection 的实例——懒加载 + 建表 +
+     * 失败重试统一收敛在 {@link LazyMilvusVectorStore}，返回 null 表示降级（检索方自带兜底）。</p>
+     */
+    private MilvusVectorStore store() {
+        LazyMilvusVectorStore holder = toolVectorStore;
+        if (holder == null) {
+            synchronized (this) {
+                holder = toolVectorStore;
+                if (holder == null) {
+                    holder = new LazyMilvusVectorStore(milvusClient, embeddingModel,
+                            collectionName, embeddingDimension, "工具索引");
+                    toolVectorStore = holder;
+                }
+            }
+        }
+        return holder.getOrNull();
     }
 
     /**
@@ -202,11 +244,19 @@ public class ToolRegistryService {
 
         log.info("可检索工具索引 {} 个（方法级）：{}", callbackIndex.size(), callbackIndex.keySet());
 
-        // 4. 全量重建向量索引：先按 type 清旧再分批写新（覆盖语义，不留脏数据）
+        // 4. 全量重建向量索引（独立 collection lion_agent_tool_index，与知识库物理隔离）：
+        //    先按 type 清旧再分批写新（覆盖语义，不留脏数据）
+        MilvusVectorStore toolStore = store();
+        if (toolStore == null) {
+            // 向量库初始化失败（Milvus 挂了/embedding 不可用）：本地索引已就绪，
+            // 检索时同样会失败并走全量降级；下次工具变更事件会再次触发重建
+            log.warn("工具索引向量库不可用，跳过索引构建（检索将降级为常驻+全量注册）");
+            return;
+        }
         try {
-            vectorStore.delete("type == '" + VectorType.TOOL_INDEX.getValue() + "'");
+            toolStore.delete("type == '" + VectorType.TOOL_INDEX.getValue() + "'");
             for (int i = 0; i < indexDocs.size(); i += ADD_BATCH_SIZE) {
-                vectorStore.add(indexDocs.subList(i, Math.min(i + ADD_BATCH_SIZE, indexDocs.size())));
+                toolStore.add(indexDocs.subList(i, Math.min(i + ADD_BATCH_SIZE, indexDocs.size())));
             }
             log.info("工具向量索引重建完成，共 {} 条", indexDocs.size());
         } catch (Exception e) {
@@ -279,7 +329,7 @@ public class ToolRegistryService {
         try {
             // 权限过滤编进 filterExpression：权限条件和向量召回一次查询完成，
             // 先过滤再排序，不会出现"top-K 里一半被权限筛掉导致候选不足"的问题
-            List<Document> hits = vectorStore.similaritySearch(SearchRequest.builder()
+            List<Document> hits = store().similaritySearch(SearchRequest.builder()
                     .query(query)
                     .topK(TOP_K)
                     .filterExpression(buildPermissionFilter(userId))
