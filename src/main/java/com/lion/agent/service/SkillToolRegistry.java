@@ -4,19 +4,23 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lion.agent.common.enums.VectorType;
+import com.lion.agent.common.util.LazyMilvusVectorStore;
 import com.lion.agent.model.dto.SkillRequest;
 import com.lion.agent.model.entity.Skill;
 import com.lion.agent.mapper.SkillMapper;
 import com.lion.agent.tools.ToolCallbackBuilder;
+import io.milvus.client.MilvusServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.milvus.MilvusVectorStore;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -38,10 +42,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code prompt_template} 的 {@code {{param}}} 占位符，再用<b>无 Advisor 的裸
  * {@link ChatModel}</b>调用一次 LLM，把结果作为工具返回值交回主对话。</p>
  *
- * <p>技能是用户私有的，本地索引按 {@code userId} 分组；向量索引复用知识库的
- * Milvus collection，用 {@code type=skill_index + userId} 标量过滤，天然隔离
- * 不同用户的技能（不会串权限）。增删改由 {@link SkillServiceImpl} 触发
- * {@link #rebuild()} 全量重建，页面变更即时生效。</p>
+ * <p>技能是用户私有的，本地索引按 {@code userId} 分组；向量索引默认与工具索引
+ * 共用独立 collection（lion_agent_tool_index，yml {@code lion.skill-index.*} 可覆盖），
+ * 与知识库物理隔离——技能增删改触发 {@link #rebuild()} 全量重建时按
+ * {@code type=skill_index} 清空重建，不影响知识库与工具向量。库内仍用
+ * {@code type=skill_index + userId} 标量过滤，天然隔离不同用户的技能（不会串权限）。
+ * 增删改由 {@link SkillServiceImpl} 触发 {@link #rebuild()} 全量重建，页面变更即时生效。</p>
  *
  * <p><b>递归规避</b>：技能执行时绝不能用全局 ChatClient（每次请求会注册
  * 技能工具本身，技能执行时再调它会再次看到自己，死循环直到 token 耗尽），
@@ -62,13 +68,53 @@ public class SkillToolRegistry {
     private static final String PLACEHOLDER_ERROR_PREFIX = "技能模板存在未替换的占位符";
 
     private final SkillMapper skillMapper;
-    private final VectorStore vectorStore;
+    private final MilvusServiceClient milvusClient;
+    private final EmbeddingModel embeddingModel;
 
     /** 无 Advisor 的裸模型：技能执行/试跑时调用，避免递归 */
     private final ChatModel chatModel;
 
+    /**
+     * 技能索引 collection 名。
+     * 默认与工具索引共用独立 collection lion_agent_tool_index（与知识库物理隔离），
+     * 若需拆库可单独配置；库内靠 type=skill_index 与工具向量隔离。
+     */
+    @Value("${lion.skill-index.collection-name:lion_agent_tool_index}")
+    private String collectionName;
+
+    /** 向量维度，必须与 embedding 模型输出一致（text-embedding-v3 为 1024） */
+    @Value("${lion.skill-index.embedding-dimension:1024}")
+    private int embeddingDimension;
+
+    /** 技能索引专用向量存储持有器（懒加载建库，非 Spring Bean，避免顶掉知识库默认 VectorStore） */
+    private volatile LazyMilvusVectorStore skillVectorStore;
+
     /** userId -> (skillName -> callback)：本地索引，rebuild 时全量重建 */
     private final Map<Long, Map<String, ToolCallback>> skillIndex = new ConcurrentHashMap<>();
+
+    /**
+     * 懒加载获取技能索引向量库：首次调用（或上次失败后）才构建并建表。
+     *
+     * <p>为什么不直接用默认 {@code VectorStore} Bean：默认实例指向知识库 collection
+     * （lion_agent_knowledge，与知识库 RAG 共用），技能索引的"按 type 清空重建"会清掉
+     * 同库的知识库/技能向量；且技能索引与知识库的维度/生命周期都不同，应物理隔离。
+     * 这里刻意不注册成 Bean，而是懒加载持有独立 collection 的实例——懒加载 + 建表 +
+     * 失败重试统一收敛在 {@link LazyMilvusVectorStore}，返回 null 表示降级（调用方自带兜底）。</p>
+     */
+    private MilvusVectorStore store() {
+        LazyMilvusVectorStore holder = skillVectorStore;
+        if (holder == null) {
+            synchronized (this) {
+                holder = skillVectorStore;
+                if (holder == null) {
+                    holder = new LazyMilvusVectorStore(milvusClient, embeddingModel,
+                            collectionName, embeddingDimension, "技能索引");
+                    skillVectorStore = holder;
+                }
+            }
+        }
+        return holder.getOrNull();
+    }
 
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
@@ -90,10 +136,19 @@ public class SkillToolRegistry {
             indexDocs.add(toIndexDocument(skill));
         }
         log.info("技能本地索引加载 {} 条（{} 个用户）", skills.size(), skillIndex.size());
+        // 4. 全量重建向量索引（独立 collection lion_agent_skill_index，与知识库/工具索引物理隔离）：
+        //    先按 type 清旧再分批写新（覆盖语义，不留脏数据）
+        MilvusVectorStore skillStore = store();
+        if (skillStore == null) {
+            // 向量库初始化失败（Milvus 挂了/embedding 不可用）：本地索引已就绪，
+            // 检索时同样会失败并走本地全量降级；下次技能变更会再次触发重建
+            log.warn("技能索引向量库不可用，跳过索引构建（检索将降级为本地全量）");
+            return;
+        }
         try {
-            vectorStore.delete("type == '" + VectorType.SKILL_INDEX.getValue() + "'");
+            skillStore.delete("type == '" + VectorType.SKILL_INDEX.getValue() + "'");
             for (int i = 0; i < indexDocs.size(); i += ADD_BATCH_SIZE) {
-                vectorStore.add(indexDocs.subList(i, Math.min(i + ADD_BATCH_SIZE, indexDocs.size())));
+                skillStore.add(indexDocs.subList(i, Math.min(i + ADD_BATCH_SIZE, indexDocs.size())));
             }
             log.info("技能向量索引重建完成，共 {} 条", indexDocs.size());
         } catch (Exception e) {
@@ -112,7 +167,13 @@ public class SkillToolRegistry {
             return List.of();
         }
         try {
-            List<Document> hits = vectorStore.similaritySearch(SearchRequest.builder()
+            MilvusVectorStore skillStore = store();
+            if (skillStore == null) {
+                // 向量库不可用：与检索失败同样降级为当前用户技能全量注册
+                log.warn("技能索引向量库不可用，降级为当前用户技能全量注册");
+                return new ArrayList<>(userSkills.values());
+            }
+            List<Document> hits = skillStore.similaritySearch(SearchRequest.builder()
                     .query(query)
                     .topK(TOP_K)
                     .filterExpression("type == '" + VectorType.SKILL_INDEX.getValue() + "' && userId == " + userId)

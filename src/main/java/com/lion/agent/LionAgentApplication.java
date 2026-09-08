@@ -48,6 +48,25 @@ public class LionAgentApplication {
                         + "  接口JSON : http://localhost:%s%s/v3/api-docs", port, contextPath, port, contextPath)
                 : "  接口文档  : 已关闭（prod 环境默认禁用）";
 
+        // Actuator 监控：management.endpoints.web.exposure.include=* 已暴露全部端点（yml 中配置）；
+        // base-path 未显式配置时默认 /actuator
+        String actBaseRaw = env.getProperty("management.endpoints.web.base-path", "/actuator");
+        String actBase = actBaseRaw.startsWith("/") ? actBaseRaw : "/" + actBaseRaw;
+        String monitorInfo = String.format("监控端点  : http://localhost:%s%s%s%n"
+                + "  /health     : http://localhost:%s%s%s/health%n"
+                + "  /beans      : http://localhost:%s%s%s/beans%n"
+                + "  /metrics    : http://localhost:%s%s%s/metrics%n"
+                + "  /env        : http://localhost:%s%s%s/env%n"
+                + "  /loggers    : http://localhost:%s%s%s/loggers%n"
+                + "  /threaddump : http://localhost:%s%s%s/threaddump",
+                port, contextPath, actBase,
+                port, contextPath, actBase,
+                port, contextPath, actBase,
+                port, contextPath, actBase,
+                port, contextPath, actBase,
+                port, contextPath, actBase,
+                port, contextPath, actBase);
+
         log.info("""
                 
                 ==========================================================
@@ -57,9 +76,10 @@ public class LionAgentApplication {
                   运行环境  : {}
                   服务地址  : http://localhost:{}{}
                   {}
+                  {}
                   启动耗时  : {}
                   JDK 版本 : {}
                 ==========================================================
-                """, appName, appName, profiles, port, contextPath, docInfo, cost, jdk);
+                """, appName, appName, profiles, port, contextPath, docInfo, monitorInfo, cost, jdk);
     }
 }

@@ -49,7 +49,7 @@ spring:
           host: ${MILVUS_HOST:127.0.0.1}
           port: ${MILVUS_PORT:19530}
         database-name: ${MILVUS_DATABASE:default}
-        collection-name: ${MILVUS_COLLECTION:lion_agent_knowledge}
+        collection-name: ${MILVUS_COLLECTION:lion_base_docs}
         embedding-dimension: 1024
 #        metric-type: COSINE
 #        index-type: HNSW

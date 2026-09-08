@@ -136,7 +136,7 @@ mysql -uxxkfz -p lion_agent < src/main/resources/db/init.sql
 - **集合（collection）与维度对齐（关键）**：
   - `lion_agent_knowledge`：知识库文档向量，**1024 维，COSINE 度量**——必须与 DashScope `text-embedding-v3` 输出维度一致（已固化在 yml `embedding-dimension: 1024`）；
   - `lion_agent_qa_cache`：语义缓存专用集合（yml `lion.qa-cache.collection-name`），与知识库物理隔离。
-  - `lion_agent_tool_index`：工具索引专用集合（yml `lion.tool-index.collection-name`），启动/工具变更时按 type 清空重建，与知识库物理隔离。
+  - `lion_agent_tool_index`：工具索引 + 技能索引共用集合（yml `lion.tool-index.collection-name` 与 `lion.skill-index.collection-name`，默认均指向此集合）。库内按 `type=tool_index / skill_index` 隔离，重建时按 type 清空重建，不影响知识库；工具/技能之间也互不干扰。
   - `lion_agent_memory`：长期记忆专用集合（yml `lion.memory.collection-name`），与知识库物理隔离。
   - 若手动预建过集合，需保证维度/度量一致，否则写入报错。
 - 验证：`curl http://localhost:9091/healthz` 返回 `OK`；或用 Attu 管理台 `http://localhost:8000` 查看集合数据。
@@ -440,7 +440,7 @@ MCP：本服务内置 streamable-http Server（`/mcp`），同时可作为 SSE C
 
 - **存储**：`ai_skill` 表，一条技能 = 名称 + 描述（模型判断何时调用 + 向量语料）+ 提示词模板 + 参数定义 JSON（`{{param}}` 占位符运行期替换）。
 - **运行**：`SkillToolRegistry` 启动/变更时把用户技能动态构建为 `ToolCallback`，模型选中后执行器填参替换模板，再用裸 `ChatModel` 调用一次 LLM，结果作为工具返回值回主对话。
-- **检索与隔离**：技能是用户私有的，向量索引复用知识库 Milvus collection，靠 `type=skill_index + userId` 标量过滤隔离；模型调用前按 query 相似度召回 TopK=3 再交给 function calling。
+- **检索与隔离**：技能是用户私有的，向量索引默认与工具索引共用独立 collection `lion_agent_tool_index`（yml `lion.skill-index.*`，默认共用；需要时可单独改到独立集合），与知识库物理隔离——重建按 `type=skill_index` 清空不影响知识库/工具向量；库内再靠 `type=skill_index + userId` 标量过滤隔离。模型调用前按 query 相似度召回 TopK=3 再交给 function calling。
 - **递归规避**：技能执行/试跑只用裸 ChatModel，绝不经过全局 ChatClient（避免技能再次看到自己而死循环）。
 - **内置技能**：init.sql 预置 7 个全局技能（`user_id=0`）：API 文档生成、代码解释、代码审查、SQL 生成、文本摘要、技术冷知识、翻译，登录即可在对话中调用。
 - **管理面**：CRUD + 导出 Markdown + 试跑（填参预览模板替换结果与模型输出），页面变更即时重建索引。

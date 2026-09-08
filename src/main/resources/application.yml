@@ -151,6 +151,14 @@ lion:
     # 向量维度，必须与 embedding 模型输出一致（text-embedding-v3 为 1024）
     embedding-dimension: 1024
 
+  # 自定义技能向量索引：技能名+描述向量化，query 按语义召回 + userId 标量过滤（用户间不串权限）
+  # 默认与工具索引共用独立 collection lion_agent_tool_index，库内靠 type=skill_index 隔离；
+  # 如后续规模增大需要拆库，可把 collection-name 改成独立的 lion_agent_skill_index。
+  skill-index:
+    collection-name: lion_agent_tool_index
+    # 向量维度，必须与 embedding 模型输出一致（text-embedding-v3 为 1024）
+    embedding-dimension: 1024
+
   # 语义缓存（方案 A）：重复问题直接复用历史回答（向量相似度命中），省 token 且秒回
   qa-cache:
     # 总开关；Milvus 不可用时自动降级，不影响正常对话

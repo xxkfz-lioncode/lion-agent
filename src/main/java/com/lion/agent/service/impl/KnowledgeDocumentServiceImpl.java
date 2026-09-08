@@ -6,6 +6,7 @@ import com.lion.agent.common.PageResult;
 import com.lion.agent.common.async.RedisTaskQueue;
 import com.lion.agent.common.enums.DocumentStatus;
 import com.lion.agent.common.enums.VectorType;
+import com.lion.agent.common.util.LazyMilvusVectorStore;
 import com.lion.agent.model.dto.DocumentProcessTask;
 import com.lion.agent.model.entity.KnowledgeDocument;
 import com.lion.agent.exception.BusinessException;
@@ -17,11 +18,13 @@ import com.lion.agent.service.retriever.InMemoryChunkStore;
 import com.lion.agent.splitter.DocumentSplitterStrategy;
 import com.lion.agent.splitter.SplitterStrategyRegistry;
 import com.lion.agent.splitter.SplitterType;
+import io.milvus.client.MilvusServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
-import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.milvus.MilvusVectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
@@ -45,7 +48,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final KnowledgeDocumentMapper documentMapper;
-    private final VectorStore vectorStore;
+    private final MilvusServiceClient milvusClient;
+    private final EmbeddingModel embeddingModel;
     private final RedisTaskQueue taskQueue;
     private final SplitterStrategyRegistry splitterStrategyRegistry;
     /** 本地内存分片副本：入库/删除时同步，供 BM25 关键词召回、窗口扩容直接读取（不依赖 Milvus 客户端） */
@@ -53,6 +57,17 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
     @Value("${lion.upload.path:upload/}")
     private String uploadPath;
+
+    /** 知识库向量 collection：与检索侧默认 VectorStore 指向同一集合（dev 为 lion_base_docs、prod 为 lion_agent_knowledge） */
+    @Value("${spring.ai.vectorstore.milvus.collection-name:lion_agent_knowledge}")
+    private String collectionName;
+
+    /** 向量维度，与 spring.ai.openai.embedding.model（text-embedding-v3 输出 1024 维）一致 */
+    @Value("${spring.ai.vectorstore.milvus.embedding-dimension:1024}")
+    private int embeddingDimension;
+
+    /** 知识库向量存储持有器：懒加载建库 + 失败自愈（非 Spring Bean，避免顶掉检索侧默认 VectorStore） */
+    private volatile LazyMilvusVectorStore knowledgeStore;
 
     @Value("${lion.upload.allowed-types:text/plain,text/markdown,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document}")
     private Set<String> allowedTypes;
@@ -166,9 +181,11 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                         .build());
             }
             // MilvusVectorStore.add 内部会对整批做 embedding，DashScope 单次上限 10 条，分批写入
+            // （向量库走 LazyMilvusVectorStore 懒加载实例；不可用则抛异常 → 文档标记失败，下次入队重试自愈）
+            MilvusVectorStore kbStore = store();
             final int addBatchSize = 10;
             for (int i = 0; i < vectorDocs.size(); i += addBatchSize) {
-                vectorStore.add(vectorDocs.subList(i, Math.min(i + addBatchSize, vectorDocs.size())));
+                kbStore.add(vectorDocs.subList(i, Math.min(i + addBatchSize, vectorDocs.size())));
             }
             // 向量入库成功后同步本地内存副本（BM25/窗口扩容的本地数据源）
             chunkStore.addAll(vectorDocs);
@@ -188,6 +205,30 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                 deletePhysicalFile(savedPath);
             }
         }
+    }
+
+    /**
+     * 懒加载获取知识库向量库：首次调用（或上次失败后）才构建并建表。
+     *
+     * <p>为什么写入不直接用默认 VectorStore Bean：默认 Bean 由 Spring AI 自动配置管理，
+     * 与检索侧共享同一 collection；而文档入库属于业务主链路——向量库不可用时应尽快失败
+     * 并把文档留在可重试状态（FAIL → 重新入队），而不是静默跳过导致「DB 标记成功但向量缺失」。
+     * 这里刻意不注册成 Bean，而是通过 {@link LazyMilvusVectorStore} 懒加载持有独立实例
+     * （懒加载 + 建表 + 失败自愈收敛在持有器内），初始化失败会直接抛出，由调用方统一兜底。</p>
+     */
+    private MilvusVectorStore store() {
+        LazyMilvusVectorStore holder = knowledgeStore;
+        if (holder == null) {
+            synchronized (this) {
+                holder = knowledgeStore;
+                if (holder == null) {
+                    holder = new LazyMilvusVectorStore(milvusClient, embeddingModel,
+                            collectionName, embeddingDimension, "知识库");
+                    knowledgeStore = holder;
+                }
+            }
+        }
+        return holder.get();
     }
 
     /**
@@ -216,7 +257,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
 
         // 删除向量库中的该文档分片：按 documentId 过滤删除（Milvus 原生支持按表达式删除）
-        vectorStore.delete("documentId == " + docId);
+        store().delete("documentId == " + docId);
         // 同步移除本地内存副本
         chunkStore.removeByDocumentId(docId);
 
