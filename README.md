@@ -7,7 +7,7 @@
 | 模块 | 说明 |
 | --- | --- |
 | 智能对话 | 文本（同步/SSE 流式）+ 多模态（图文）双通道，会话支持重命名/删除/清空 |
-| 知识库 RAG | 上传（txt/md/pdf/doc/docx）→ Tika 解析 → 6 种切分策略 → Milvus 向量化（全异步）；问答走「意图识别→语义改写→多路召回→RRF→Rerank→门控」流水线，支持引用溯源 |
+| 知识库 RAG | 上传（txt/md/pdf/doc/docx）→ Tika / PDFBox 解析 → 7 种切分策略（含 PDF 按页切分）→ Milvus 向量化（全异步）；问答走「意图识别→语义改写→多路召回→RRF→Rerank→门控」流水线，支持引用溯源 |
 | 高级 RAG 兜底 | 语义缓存（相似问题秒回 + 省 token）、Advisor 链（TokenUsage / Summary / QaCache） |
 | 多轮与长期记忆 | 会话内多轮记忆 = JDBC 滑动窗口原文 + 增量压缩摘要双通路（含 100 条触发阈值、最近 5 条原文保精度）；跨会话用户画像（事实/偏好）由 LLM 抽取、Milvus 检索注入 |
 | 工具调用 | 三层收敛（常驻 + 权限 + 向量预筛）的 RAG of Tools；内置日期/用户/星座/天气等工具 + MCP Server/Client |
@@ -15,19 +15,144 @@
 | 用量与可观测 | Token 用量统计（用户/会话/模型维度）+ OpenTelemetry→Langfuse 全链路 Trace + 原生摄取能力（对话满意度评分 / 自定义事件补报，含演示接口） |
 | 账号体系 | 注册/登录（BCrypt + Sa-Token），个人资料（昵称/头像）与密码自助修改 |
 
+## 项目效果图
+
+> 截图统一放在 `docs/images/` 目录，按下方文件名保存即可正常显示（建议 PNG、宽度 ≥ 1600px）。
+
+**登录 / 注册**（`login.png`）
+
+![登录注册](docs/images/login.png)
+
+**首页 / 导航**（`home.png`）
+
+![首页](docs/images/home.png)
+
+**智能对话（同步 / SSE 流式 + 引用溯源）**（`chat.png`）
+
+![智能对话](docs/images/chat.png)
+
+**多模态对话（图文混合）**（`multimodal-chat.png`）
+
+![多模态对话](docs/images/multimodal-chat.png)
+
+**知识库上传与解析入库**（`knowledge-upload.png`）
+
+![知识库上传](docs/images/knowledge-upload.png)
+
+**知识库管理**（`knowledge-manage.png`）
+
+![知识库管理](docs/images/knowledge-manage.png)
+
+**长期记忆（用户画像）**（`memory.png`）
+
+![长期记忆](docs/images/memory.png)
+
+**自定义技能管理（含试跑）**（`skill-manage.png`）
+
+![技能管理](docs/images/skill-manage.png)
+
+**MCP 服务管理（远程工具接入）**（`mcp-manage.png`）
+
+![MCP 管理](docs/images/mcp-manage.png)
+
+**Token 用量统计**（`token-usage.png`）
+
+![Token 用量](docs/images/token-usage.png)
+
+**可选补充**：提示词模板管理（`prompt-manage.png`）、Langfuse 链路追踪与对话评分（`langfuse-trace.png`）。
+
 ## 技术栈
 
 | 分类 | 技术 |
 | --- | --- |
-| 语言/框架 | Java 21、Spring Boot 4.0.7、Spring AI 2.0.0 |
+| 语言/框架 | Java 21、Spring Boot 4.0.7、Spring AI 2.0.1 |
 | 数据 | MySQL 8 + MyBatis-Plus 3.5、Redisson（Redis）、Milvus 向量库 |
 | 模型 | 通义千问 DashScope（OpenAI 兼容）：qwen 系列对话 + text-embedding-v3（1024 维） |
 | 文档解析 | Apache Tika（pdf / doc / docx / txt / md） |
 | 认证 | Sa-Token（自定义 HandlerInterceptor） |
 | 工具 | Hutool（JSON 序列化）、Resilience4j（熔断）、springdoc-openapi（Swagger UI） |
-| 远程工具 | MCP（本服务提供 streamable-http Server，同时以 SSE Client 接入第三方 MCP Server） |
+| 远程工具 | MCP（本服务提供 streamable-http Server，同时以 Streamable HTTP Client 接入第三方 MCP Server） |
 | 可观测性 | Actuator + OpenTelemetry → Langfuse（OTLP）；自研 `LangfuseIngestClient` 原生摄取（评分 / 自定义事件） |
 | 前端 | Vue 3 + Vite（`frontend/` 目录） |
+
+## Spring AI 知识点速览（本项目落点）
+
+项目基于 Spring AI 2.0（`spring-ai.version=2.0.1`，适配 Spring Boot 4 / Java 21）通过 OpenAI 兼容协议接入通义千问 DashScope。下表按官方能力域罗列**项目实际用到的 Spring AI 概念及落点代码**（机制细节见「核心设计」，下文简写的「见 x.y」同样指核心设计的对应小节），可作为复习与检索索引。
+
+**1. 模型与调用入口**
+
+| Spring AI 概念 | 说明 | 本项目落点 |
+| --- | --- | --- |
+| `ChatModel` | 对话模型抽象（同步） | OpenAI 兼容自动配置指向 DashScope（`qwen3.8-max`）；辅助链路（意图识别 / 改写 / Rerank / 门控 / 记忆抽取 / 技能执行）注入**裸 `ChatModel`**，绕开全局 Advisor 链 |
+| `ChatClient` | 业务门面：`prompt().system().user().media().tools().advisors().call()/stream()` | `AiConfig#chatClient`（全局，挂 Advisor 链）、`AiConfig#multimodalChatClient`（多模态独立链路） |
+| `ChatOptions` | 模型参数（model / temperature） | 多模态用 `.defaultOptions(...)` 切到 `qwen-vl-max`，不新增 ChatModel Bean |
+| `UserSpec#media(MimeType, Resource/URL)` | 多模态图片输入 | `ChatServiceImpl`（`images` 文件 + `imageUrls` 链接两种重载） |
+| `EmbeddingModel` | 向量化抽象 | text-embedding-v3（1024 维）：知识库 / 工具 / 技能 / 语义缓存 / 长期记忆 5 处向量化共用 |
+| `PromptTemplate` | ST4 模板渲染 | `PromptConfig`（`prompts/*.st`，DB 优先 + classpath 回退，页面改提示词即时生效） |
+| 结构化输出 | `.entity(Class)` / `.entity(ParameterizedTypeReference)` / 原生 provider 模式 | `controller/test/StructTestController` + `AdvisorParams.ENABLE_NATIVE_STRUCTURED_OUTPUT` |
+
+**2. Advisor 体系**
+
+| Spring AI 概念 | 说明 | 本项目落点 |
+| --- | --- | --- |
+| `CallAdvisor` / `StreamAdvisor` + `CallAdvisorChain` / `StreamAdvisorChain` | 同步与流式两条调用链，`order` 越小越靠外层 | 4 个自研 Advisor 同时实现两接口：`TokenUsageAdvisor`(-100) / `QaCacheAdvisor`(10) / `LongTermMemoryAdvisor`(200) / `ConversationSummaryAdvisor`(300) |
+| `ChatClientRequest` / `ChatClientResponse` | 链上请求与响应载体 | 自研 Advisor 借此改写 messages（注入 SystemMessage 摘要/画像）、读写 `adviseContext` |
+| `MessageChatMemoryAdvisor` | 官方会话记忆注入 Advisor | `AiConfig`（order 0）+ 自研 `ReadLimitChatMemory` 控制读取条数 |
+| `SimpleLoggerAdvisor` | 请求 / 响应日志 | 全局链内置（order 0） |
+| `ToolCallingAdvisor` | 工具调用循环宿主（可被子类替换） | 被 `ToolSearchToolCallingAdvisor` 接管（见 3.1） |
+| `AdvisorParams` | 官方 Advisor 参数常量 | 原生结构化输出开关 |
+
+**3. ChatMemory（会话记忆）**
+
+| Spring AI 概念 | 本项目落点 |
+| --- | --- |
+| `ChatMemory` / `MessageWindowChatMemory` | 短程滑动窗口：落库 `maxMessages(500)`、读时注入 30 条，见 1.2 |
+| `JdbcChatMemoryRepository` | Spring AI JDBC 记忆仓库（`spring.ai.chat.memory.repository.jdbc.initialize-schema`） |
+| 自研长程通路 | `ConversationSummaryAdvisor` 基于业务表 `chat_message` + 摘要游标做增量压缩，不依赖 Spring AI 内存仓库 |
+| `ChatMemory.CONVERSATION_ID` | 会话 ID 经 `.advisors(a -> a.param(...))` 注入，工具搜索顾问也复用它做会话隔离 |
+
+**4. RAG（Document / Reader / Splitter / VectorStore）**
+
+| Spring AI 概念 | 本项目落点 |
+| --- | --- |
+| `Document` | 切分产物、向量写入与检索结果的统一载体（metadata 带 knowledgeId / docId / fileName / page） |
+| `TextSplitter` / `TokenTextSplitter` | 7 种切分策略：`token` 用官方 `TokenTextSplitter`，其余 6 种自研实现 `TextSplitter` |
+| `TikaDocumentReader` | txt / md / pdf / doc / docx 抽纯文本（入库链路第一步） |
+| `PagePdfDocumentReader` + `PdfDocumentReaderConfig` + `ExtractedTextFormatter` | PDF 按页切分（按页边距裁页眉 / 页脚），见 2.2 |
+| `VectorStore` / `MilvusVectorStore` | 默认 `VectorStore` Bean（Milvus 自动配置）供知识库检索；各业务向量库（工具 / 技能 / 语义缓存 / 长期记忆）统一走 `LazyMilvusVectorStore` 懒加载且**不注册成 Bean** |
+| `SearchRequest` | 相似度检索：工具预筛 top-3 + 权限 `filterExpression`、知识库多路召回、语义缓存（0.78）、长期记忆（0.55） |
+| 检索增强（自研，非 Spring AI API） | `service/retriever/`：`SemanticRetriever` / `QueryRewriteRetriever` / `MultiRouteRetriever` / `Bm25Retriever` + RRF 融合 + `DashScopeRerankUtils` + 门控；知识库问答流水线见 2.3 |
+
+**5. Tool Calling（工具调用）**
+
+| Spring AI 概念 | 本项目落点 |
+| --- | --- |
+| `@Tool` / `@ToolParam` | 声明式工具：`UserTools` / `DateTools` / `StarFortuneTools` / `TimeLimiterTools` |
+| `ToolCallbacks.from(bean)` | 反射把 `@Tool` 方法收集为 `ToolCallback[]`（`ToolRegistryService`） |
+| `ToolCallback` / `ToolDefinition` / `DefaultToolDefinition` | 工具统一契约（name / description / inputSchema）；自研 `ToolCallbackBuilder` 用于动态构建技能工具 |
+| `MethodToolCallback` | 编程式工具（反射绑定既有方法 + 手写 inputSchema）：`CustomToolsConfig#weatherTool` |
+| `FunctionToolCallback` | 函数式工具（`inputType(record)` 自动生成 JSON Schema）：`CustomToolsConfig#holidayCountdownTool` |
+| `ToolCallbackProvider` | 远程（MCP）工具供给，`ToolRegistryService` 用 `ObjectProvider` 可选注入 |
+| `ToolCallingManager` | 工具执行管理器（工具搜索顾问 Builder 需显式传入） |
+| `.tools(List<ToolCallback>)` | 每请求按需注册（常驻 + 向量预筛 + 技能命中），避开已弃用的 `toolCallbacks(...)` 重载 |
+| `ToolIndex` / `ToolSearchTool` / `ToolSearchToolCallingAdvisor` | 工具搜索（渐进式工具披露）：3 种索引实现 + 会话隔离 + 淘汰策略，见 3.1 |
+
+**6. MCP（Model Context Protocol）**
+
+| Spring AI 概念 | 本项目落点 |
+| --- | --- |
+| `spring-ai-starter-mcp-server-webmvc` + `@McpTool` / `@McpToolParam` | 本服务内置 streamable-http Server（`/mcp`）：`tools/mcptool/OrderMcpTools` |
+| `spring-ai-starter-mcp-client-webflux` + `ToolCallbackProvider` | yml 静态配置的第三方 MCP Server 工具接入，同样参与向量索引与熔断保护 |
+| MCP 官方 SDK（`McpClient` / `McpSyncClient` / `HttpClientStreamableHttpTransport`）+ `McpToolUtils.getToolCallbacksFromSyncClients` | 页面动态增删 MCP Server：运行期建连、`listTools`、转 `ToolCallback` 后触发索引重建（`McpServerServiceImpl`）；SSE 传输已被 MCP 规范与 Spring AI 2.0 废弃，统一用 Streamable HTTP |
+
+**7. 可观测与版本对齐**
+
+| Spring AI 概念 | 本项目落点 |
+| --- | --- |
+| Observation / OTel | `spring-boot-starter-actuator` + `spring-boot-starter-opentelemetry`：Spring AI 调用自动埋点 → OTLP → Langfuse（见「核心设计 4」） |
+| `Usage` / `ChatResponseMetadata` | `TokenUsageAdvisor` 从中取输入/输出 token 与耗时落库 `ai_token_usage` |
+| `@ConditionalOnMissingBean` Bean 让路 | 自定义 `ToolCallingAdvisor.Builder` 覆盖自动配置（工具搜索顾问，见 3.1）；自定义 `ToolIndex` Bean 同样优先 |
+| 依赖版本对齐坑 | `spring-ai-client-chat` 传递的 `swagger-annotations-jakarta` 覆盖 springdoc 所需版本（显式钉 `2.2.52`）；`openai-java-core` 传递 javax 版 `swagger-annotations`（exclusion 排除） |
 
 ## 项目结构
 
@@ -62,6 +187,7 @@ lion-agent/
 │   ├── src/views/          # Login / Home / Chat / MultimodalChat / knowledge/ / memory / skill/ / usage
 │   ├── src/components/     # UserProfileModal / ConfirmDialog / InputDialog / PaginationBar
 │   └── src/api/            # auth / chat / knowledge / memory / skill / token-usage
+├── docs/images/            # README 效果图（截图存放目录）
 ├── docker-compose.yml      # MySQL / Redis / etcd / MinIO / Milvus / Attu 一键编排
 ├── start-frontend.bat      # Windows 前端一键启动脚本
 ├── .env / .env.example     # 本地敏感配置（.env 不提交）
@@ -74,7 +200,7 @@ lion-agent/
 # 1. 环境要求：JDK 21、Maven 3.8+、Docker（可选，用于一键启动中间件）
 #    - 方案 A（推荐）：用 Docker Compose 一键启动 MySQL / Redis / Milvus
 #      docker compose up -d
-#    - 方案 B：自行安装 MySQL 8 / Redis / Milvus（见下方「中间件前置环境」）
+#    - 方案 B：自行安装 MySQL 8 / Redis / Milvus（见下方「中间件环境准备」）
 
 # 2. 初始化数据库（方案 B 需要；方案 A 已由 MySQL 容器自动执行 init.sql）
 mysql -uroot -p lion_agent < src/main/resources/db/init.sql
@@ -95,9 +221,12 @@ cd frontend && npm install && npm run dev
 - Swagger UI：`http://localhost:8080/swagger-ui.html`
 - 前端页面：`http://localhost:5173`
 
-## 中间件前置环境（手动部署 / 版本要求）
+## 中间件环境准备（手动部署 / Docker Compose）
 
-不借助 Docker 时，需自行安装以下中间件并满足版本要求。
+Lion Agent 依赖 MySQL、Redis、Milvus 三类核心中间件（Milvus 自身依赖 etcd + MinIO 做元数据和对象存储）。提供两种部署方式，任选其一即可：
+
+- **推荐**：`docker compose up -d` 一键启动本章节「方式二」中的全部容器。
+- **手动部署**：已有现成中间件或想自定义安装，参考「方式一」。
 
 ### 版本与端口总览
 
@@ -109,7 +238,11 @@ cd frontend && npm install && npm run dev
 | MinIO | 与 Milvus 配套版本 | 9000 / 9001 | Milvus 底层对象存储（standalone 依赖） |
 | etcd | v3.5+ | 内部（2379） | Milvus 元数据存储（standalone 依赖） |
 
-### MySQL 8
+### 方式一：手动部署
+
+不借助 Docker 时，需自行安装以下中间件并满足版本要求。
+
+#### MySQL 8
 
 ```bash
 # 1. 安装 MySQL 8.0+，启动服务
@@ -123,18 +256,18 @@ FLUSH PRIVILEGES;"
 mysql -uxxkfz -p lion_agent < src/main/resources/db/init.sql
 ```
 
-### Redis
+#### Redis
 
 - **用途**：① Sa-Token 会话 token 存储；② 语义缓存（`lion.qa-cache` 相关 key）；③ 知识库异步任务队列（key 前缀 `lion:task:queue:`）。
 - 若设置了密码，需在 `.env` 配置 `REDIS_PASSWORD`，且务必开启持久化（AOF 或 RDB），否则重启会丢队列任务与缓存。
 - 验证：`redis-cli -a <密码> ping` 返回 `PONG`。
 - Windows 本机可用 Memurai 或 WSL 运行；Linux 用 `apt install redis-server` / Docker。
 
-### Milvus 向量数据库
+#### Milvus 向量数据库
 
 - **架构**：Milvus standalone 依赖 etcd（元数据）+ MinIO（对象存储）两个进程，`docker-compose.yml` 已按官方架构拆分部署。
 - **集合（collection）与维度对齐（关键）**：
-  - `lion_agent_knowledge`：知识库文档向量，**1024 维，COSINE 度量**——必须与 DashScope `text-embedding-v3` 输出维度一致（已固化在 yml `embedding-dimension: 1024`）；
+  - `lion_agent_knowledge`（dev 默认 `lion_base_docs`）：知识库文档向量，**1024 维，COSINE 度量**——必须与 DashScope `text-embedding-v3` 输出维度一致；默认 collection 名可通过 yml `lion.knowledge.collection-name` 覆盖。
   - `lion_agent_qa_cache`：语义缓存专用集合（yml `lion.qa-cache.collection-name`），与知识库物理隔离。
   - `lion_agent_tool_index`：工具索引 + 技能索引共用集合（yml `lion.tool-index.collection-name` 与 `lion.skill-index.collection-name`，默认均指向此集合）。库内按 `type=tool_index / skill_index` 隔离，重建时按 type 清空重建，不影响知识库；工具/技能之间也互不干扰。
   - `lion_agent_memory`：长期记忆专用集合（yml `lion.memory.collection-name`），与知识库物理隔离。
@@ -142,7 +275,7 @@ mysql -uxxkfz -p lion_agent < src/main/resources/db/init.sql
 - 验证：`curl http://localhost:9091/healthz` 返回 `OK`；或用 Attu 管理台 `http://localhost:8000` 查看集合数据。
 - 升级 Milvus 大版本前先确认索引类型（本项目使用 AUTOINDEX / COSINE）兼容。
 
-### 验证命令汇总
+#### 验证命令汇总
 
 ```bash
 # MySQL
@@ -153,11 +286,11 @@ redis-cli -a 123456 ping        # 期望 PONG
 curl http://localhost:9091/healthz   # 期望 OK
 ```
 
-## Docker Compose 部署中间件
+### 方式二：Docker Compose 一键部署（推荐）
 
 项目根目录提供 `docker-compose.yml`，一键编排全部基础设施（MySQL / Redis / etcd / MinIO / Milvus / Attu，即上述中间件的容器化等价方案）。
 
-### 前置环境条件
+#### 前置环境条件
 
 | 依赖 | 版本要求 | 说明 |
 | --- | --- | --- |
@@ -167,7 +300,7 @@ curl http://localhost:9091/healthz   # 期望 OK
 
 启动前确认以下端口未被占用：`3306`(MySQL)、`6379`(Redis)、`19530/9091`(Milvus)、`9000/9001`(MinIO)、`8000`(Attu)。
 
-### 服务清单
+#### 服务清单
 
 | 服务 | 镜像 | 对外端口 | 说明 |
 | --- | --- | --- | --- |
@@ -178,7 +311,7 @@ curl http://localhost:9091/healthz   # 期望 OK
 | `milvus-standalone` | milvusdb/milvus:v2.4.17 | 19530/9091 | 向量库，`19530` 为应用连接端口，`9091` 健康检查 |
 | `attu` | zilliz/attu:latest | 8000 | Milvus Web 管理台（可选），`http://localhost:8000` |
 
-### 启动与停止
+#### 启动与停止
 
 ```bash
 docker compose up -d              # 启动全部中间件（含 Attu 管理台）
@@ -190,6 +323,12 @@ docker compose down               # 停止，保留数据
 docker compose down -v            # 停止并删除全部数据卷（慎用，会清空数据）
 ```
 
+#### 数据持久化与初始化
+
+- 数据保存在命名卷：`mysql-data`、`redis-data`、`etcd-data`、`minio-data`、`milvus-data`，`docker compose down` 不丢失。
+- MySQL 首次启动会挂载 `src/main/resources/db/init.sql` 到容器初始化目录自动建库建表；如需重建，先 `docker compose down -v` 清卷再 `up -d`。
+- 镜像版本说明：Milvus 需与 `application*.yml` 中 `embedding-dimension: 1024`、索引类型一致；本项目已使用 Milvus 2.4（AUTOINDEX / COSINE），升级大版本前请先验证兼容性。
+
 ### 应用连接配置
 
 中间件连接信息与项目 `.env` 完全对齐（Compose 自动读取 `.env` 中的 `DB_USERNAME` / `DB_PASSWORD` / `REDIS_PASSWORD` 等变量）。**注意**：当前 `.env` 中 `MILVUS_HOST=118.25.109.72` 是远程测试实例，改用本地容器时需改为：
@@ -199,12 +338,6 @@ MILVUS_HOST=localhost
 MILVUS_PORT=19530
 # DB_URL 默认即 localhost:3306，无需改动
 ```
-
-### 数据持久化与初始化
-
-- 数据保存在命名卷：`mysql-data`、`redis-data`、`etcd-data`、`minio-data`、`milvus-data`，`docker compose down` 不丢失。
-- MySQL 首次启动会挂载 `src/main/resources/db/init.sql` 到容器初始化目录自动建库建表；如需重建，先 `docker compose down -v` 清卷再 `up -d`。
-- 镜像版本说明：Milvus 需与 `application*.yml` 中 `embedding-dimension: 1024`、索引类型一致；本项目已使用 Milvus 2.4（AUTOINDEX / COSINE），升级大版本前请先验证兼容性。
 
 ### 应用容器化（可选，暂未提供）
 
@@ -352,12 +485,13 @@ ChatMemory messageWindowChatMemory(JdbcChatMemoryRepository repository) {
 ```
 取任务 → Redis SETNX 幂等锁（防同一文档并发处理）
       → 幂等检查（status=1 直接跳过，防重复消费）
-      → TikaDocumentReader 解析（FileSystemResource 读取，兼容中文文件名）
-      → splitByStrategy 按所选策略切分（见 2.2）
-      → metadata 携带 knowledgeId / docId / fileName
-      → 分批（10 条/批，DashScope embedding 单次上限）embedding 写入 Milvus（lion_agent_knowledge，1024 维 / COSINE）
+      → splitDocument 按所选策略「解析 + 切分」（见 2.2），分两条分支：
+          · 文本切分型：TikaDocumentReader 抽纯文本 → 策略切分（FileSystemResource 读取，兼容中文文件名）
+          · 解析型（PDF 按页）：文件直接交给策略，由 PDFBox 按页提取（页边界只在原文里有，纯文本已丢失）
+      → metadata 携带 knowledgeId / docId / fileName（按页切分额外带 page 页码，供引用溯源标注来源页）
+      → 分批（10 条/批，DashScope embedding 单次上限）embedding 写入 Milvus（yml `lion.knowledge.collection-name`，1024 维 / COSINE）
       → status=1 成功
-失败：retryCount < max-retry(默认3) 重新入队，否则 status=0 + fail_reason（前端可展示失败原因）
+失败：retryCount < max-retry(默认3) 重新入队，否则 status=0 + fail_reason（前端列表/预览展示具体报错）
 ```
 
 通用组件位于 `common/async`：`RedisTaskQueue`（生产者，Hutool `JSONUtil` 序列化）、`AbstractRedisTaskConsumer`（消费者基类，N 线程轮询 + 优雅关闭）。任务保存在 Redis 队列中，重启期间保留、重启后继续消费。
@@ -374,6 +508,30 @@ ChatMemory messageWindowChatMemory(JdbcChatMemoryRepository repository) {
 | `sentence` | 中英文标点（`。！？!?.；;`）断句 | 块短、粒度细 | 问答密集的短文本 |
 | `line` | 按行切（trim 空行） | 块最小 | 代码、清单类 |
 | `semantic` | 先断句 → embedding 计算相邻句相似度 → 在语义断裂处（低于阈值）切分 | 块内语义连贯，检索质量最高 | 长文、专业资料（embedding 成本高） |
+| `page` | Spring AI `PagePdfDocumentReader`（PDFBox）按页提取，默认一页一块，可用页边距裁掉页眉/页脚 | 块与「页」严格对齐，块上带 `page` 页码元数据 | **仅 PDF**：说明书、论文、合同等「一页一主题」的规范文档 |
+
+**两类策略**（`DocumentSplitterStrategy`）：
+
+- **文本切分型**（除 `page` 外的 6 种）：只依赖文本内容，调用方先解析成纯文本，再调 `split(List<Document>)`；
+- **解析型**（`page`）：分块依据在原始文件结构里（PDF 页码），纯文本已丢失该信息，故覆写 `parseFromSource()` 返回 `true`，
+  由调用方改调 `parseAndSplit(Resource)` 直接读落盘文件；`split()` 保留为兜底实现（被误调时告警并原样返回，不静默产出错块）。
+
+**扩展方式**：新增策略 = 新增一个 `@Component` 实现类并声明 `type()`（枚举 `SplitterType`），注册表 `SplitterStrategyRegistry`
+启动时自动收集，`KnowledgeDocumentServiceImpl.splitDocument` 无需改动；解析型策略再覆写 `parseFromSource()` / `parseAndSplit(Resource)` 即可。
+
+**相关配置**（yml，未配置走代码内默认值）：
+
+```yaml
+lion:
+  splitter:
+    page:
+      pages-per-document: 1   # 每块页数，1 = 一页一块
+      top-margin: 0           # 上边距（磅），调大裁掉页眉
+      bottom-margin: 0        # 下边距（磅），调大裁掉页脚
+```
+
+> 注意：`page` 仅支持 PDF；对非 PDF 文件选择该策略会在处理阶段失败，`fail_reason` 记录「按页切分仅支持 PDF 文件：xxx」；
+> 扫描件（图片型 PDF）因提取不到文本会提示需先做 OCR。
 
 #### 2.3 统一对话入口 + 意图识别（Advanced RAG 流水线）
 
@@ -415,6 +573,60 @@ ChatMemory messageWindowChatMemory(JdbcChatMemoryRepository repository) {
 索引与本体分离：Milvus 中只存工具"目录索引"（`type=tool_index`，独立 collection `lion_agent_tool_index`，与知识库/技能物理隔离——重建时按 type 清空不影响知识库向量），工具实现仍是 Spring Bean。新增工具 = 写工具类 + 在 `ToolRegistryService` 登记，启动自动重建索引。
 
 MCP：本服务内置 streamable-http Server（`/mcp`），同时可作为 SSE Client 接入第三方 MCP Server（如商品分析），接入的工具同样参与向量索引与熔断保护。
+
+#### 3.1 工具搜索顾问（ToolSearchToolCallingAdvisor，渐进式工具披露）
+
+上面的三层收敛解决的是「**发请求前**选哪些工具」；官方 `ToolSearchToolCallingAdvisor`（`spring-ai-starter-tool-search-advisor`，2.0.1）解决的是「**对话过程中**工具定义要不要一直挂在模型眼前」，即 Anthropic 提出的**渐进式工具披露**（progressive tool disclosure）。
+
+**工作机制**（顾问继承 `ToolCallingAdvisor`，重写工具调用循环的初始化钩子与每轮迭代钩子）：
+
+1. 会话开始时，本轮注册的工具被索引进 `ToolIndex`，**首轮不发送任何业务工具定义**，只发内置 `toolSearchTool`；
+2. 模型需要某能力时，用**自然语言**调用 `toolSearchTool`（描述"我要查什么"，而不是猜工具名）；
+3. `ToolIndex` 检索命中后，命中的工具定义被**追加进对话**，下一轮迭代模型即可正常发起工具调用；
+4. 工具执行仍由 `ToolCallingManager` 完成，结果照常回到模型——它只是把工具定义**延迟注入**原有循环，不是另一套执行链路。
+
+**索引按会话隔离**：`ToolIndex` 的全部操作以 `sessionId` 为作用域（`indexTool` / `indexTools` / `search` / `clearIndex`），会话 ID 默认从 advisor context 的 `ChatMemory.CONVERSATION_ID` 键读取。项目在 `ChatServiceImpl` 里已经传了该键（`.advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))`），所以会话隔离"免费"生效，无需额外代码。
+
+**三种 ToolIndex 实现**（`spring.ai.chat.client.tool-search-advisor.tool-index-type`）：
+
+| 值 | 实现 | 依赖 | 说明 |
+| --- | --- | --- | --- |
+| `regex`（默认） | `RegexToolIndex` | 无 | 关键词/正则匹配，适合工具名有严格命名约定，未显式配置时的默认实现 |
+| `lucene` | `LuceneToolIndex` | Lucene core（starter 已内置） | 全文检索，默认最低分 0.25（`...lucene.min-score-threshold`），低于阈值静默丢弃 |
+| `vector` | `VectorToolIndex` | 容器中存在 `VectorStore` Bean | **项目当前使用**：对工具名 + 描述做 embedding，查询同样 embedding 后取 top-K，对自然语言描述最友好 |
+
+项目配置（`application.yml`）：
+
+```yaml
+spring:
+  ai:
+    chat:
+      client:
+        tool-search-advisor:
+          # 开启后自动创建 ToolIndex（按 tool-index-type 选实现）与 ToolSearchAdvisorProperties
+          enabled: true
+          tool-index-type: vector   # 语义召回，复用容器中的 Milvus VectorStore Bean
+          max-results: 5            # 单次 toolSearchTool 调用最多召回 5 个工具定义注入对话（null 时模型自决，内置描述提示为 5）
+```
+
+其他可用属性及默认值：`session-id-key-name`（`ChatMemory.CONVERSATION_ID`）、`system-message-suffix`（追加到 system message 的使用指引，默认加载内置模板 `DEFAULT_SYSTEM_PROMPT_SUFFIX.md`）、`reference-tool-name-accumulation`（`true`）、`advisor-order`（`HIGHEST_PRECEDENCE+300`，即比链中 `TokenUsageAdvisor` 的 `-100` 更靠外层）、`eviction.lru-max-sessions`（`1000`）、`eviction.ttl`（`null`，设置后改用 LRU+TTL 组合策略）。
+
+> `reference-tool-name-accumulation` 默认 `true` 的语义值得注意：会话内**被搜索发现过的工具会一直保留在可用集合里**，披露是单调递增的（越聊工具越多，不会"用完即收"）；想改成"每轮只保留本轮命中"可设为 `false`。
+
+**接入改造（`AiConfig#toolSearchToolCallingAdvisorBuilder`）**：自动配置在 `enabled=true` 时注册的 Builder Bean 类型是 `ToolCallingAdvisor.Builder<?>`，靠 `@ConditionalOnMissingBean` 顶掉默认的普通版 Builder，从而透明替换 `ToolCallingAdvisor`。但 2.0.0 的 `ChatClientAutoConfiguration` 与 `ToolSearchAdvisorAutoConfiguration` **声明了同名的 Bean 方法** `toolCallingAdvisorBuilder`，谁先注册谁生效——实测普通版（不含 `ToolIndex`、不做工具搜索）先注册，ToolSearch 版被跳过，表现为「断点打不到、工具索引从不写入」。项目的解法：在用户配置类（先于自动配置解析）主动声明一个 `ToolCallingAdvisor.Builder<?>` Bean——`ToolSearchToolCallingAdvisor.builder().toolIndex(toolIndex).toolCallingManager(toolCallingManager)` 并透传 `max-results`，两个自动配置的同名方法都因 `@ConditionalOnMissingBean` 让路，`ChatClient.Builder` 自然拿到 ToolSearch 版并自动挂上顾问，`chatClient` 的装配代码无需改动。
+
+> 坑：该 Bean 依赖 `enabled=true` 时自动创建的 `ToolIndex` 与 `ToolSearchAdvisorProperties`，因此**把 `enabled` 改成 `false` 会导致启动失败**（依赖 Bean 缺失）；要关闭顾问，需连同 `AiConfig` 里的 Builder Bean 一起摘掉。
+
+**与 3 节自研筛选的分工（两层，别混淆）**：
+
+| 层次 | 生效位置 | 职责 | 数据落点 |
+| --- | --- | --- | --- |
+| 自研 `ToolRegistryService.selectTools` + `SkillToolRegistry` | 请求**进入 ChatClient 之前** | 常驻工具 ∪ 权限码过滤后的向量 top-3 ∪ 技能命中，再用 `.tools(...)` 注册本轮工具 | 独立 collection `lion_agent_tool_index`（懒加载、**刻意不注册成 Bean**） |
+| 官方 `ToolSearchToolCallingAdvisor` | ChatClient **内部的工具调用循环** | 把已注册工具索引进 `ToolIndex`，由模型按需搜索后再把定义注入对话 | 复用容器中唯一的 `VectorStore` Bean（Milvus 默认实例，collection 由 `spring.ai.vectorstore.milvus.collection-name` 决定，dev 默认 `lion_base_docs`） |
+
+一句话：项目层决定「这次请求允许哪些工具进 ChatClient」（含权限、常驻、MCP/技能动态接入），顾问层决定「这些工具在对话里何时暴露给模型」。两层叠加不影响功能（顾问只会延迟披露，不会让工具不可用），但要清楚**顾问侧向量索引落在默认 `VectorStore` 上**，与自研工具索引的 `lion_agent_tool_index` 不是同一份数据——项目自研的那些向量库刻意不注册成 Bean，正是为了不顶掉默认 `VectorStore`；如需两者彻底分离，可显式声明一个独立 collection 的 `VectorStore` 或自定义 `ToolIndex` Bean（自定义 `ToolIndex` Bean 始终优先于自动配置）。
+
+**当前规模下的取舍**：官方建议工具数 < 10、或每次会话都会用到全部工具时继续用默认 `ToolCallingAdvisor`（搜索往返的代价可能超过省下的 token）。项目目前可检索工具只有 `StarFortuneTools` 等少量工具 + 动态 MCP/技能，顾问更多是「工具目录做大后的预留能力」——这也是把 `max-results` 设为 5、并把高频低成本的常驻工具（`UserTools` / `DateTools` / `TimeLimiterTools`）留在自研层的原因。
 
 ### 4. 可观测性（OTel Trace + Langfuse 原生摄取）
 

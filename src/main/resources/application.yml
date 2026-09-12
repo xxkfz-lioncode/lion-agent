@@ -1,3 +1,6 @@
+server:
+  port: ${LION_AGENT_PORT:8080}
+
 spring:
   application:
     name: lion-agent
@@ -17,6 +20,7 @@ spring:
       max-file-size: 10MB
       # 单次请求（多个文件合计）最大 20MB
       max-request-size: 20MB
+
 
 # mcp相关配置
   ai:
@@ -117,6 +121,23 @@ lion:
     path: ${LION_UPLOAD_PATH:upload/}
     # 允许上传的文件类型（MIME）
     allowed-types: text/plain,text/markdown,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document
+
+  # 文档切分策略参数（未配置的项走代码内默认值）
+  splitter:
+    page:
+      # 按页切分（仅 PDF）：每块包含的页数，1 = 一页一块
+      pages-per-document: 1
+      # 页面上下边距（磅）：调大用于裁掉页眉/页脚，避免每页重复噪声进入向量
+      top-margin: 0
+      bottom-margin: 0
+
+  # 知识库文档向量（RAG）：文档分片向量化后存入 Milvus，与语义缓存/工具索引/技能索引/记忆物理隔离
+  knowledge:
+    # 知识库专用 Milvus collection（dev 可覆盖为 lion_base_docs，prod 默认 lion_agent_knowledge）
+    collection-name: lion_agent_knowledge
+    # 向量维度，必须与 embedding 模型输出一致（text-embedding-v3 为 1024）
+    embedding-dimension: 1024
+
   alapi:
     # ALAPI Token，用于调用星座运势等第三方接口；通过环境变量或 .env 注入，不填则星座运势工具返回配置缺失提示
     token: ${LION_ALAPI_TOKEN:}
@@ -142,6 +163,7 @@ lion:
     # 攒批上报参数：缓冲内事件数达到 batch-size，或距上次发送超过 flush-interval-ms 即发送一次
     batch-size: 20
     flush-interval-ms: 5000
+
 
   # 工具向量索引（RAG of Tools）：工具名+描述向量化，query 先按语义预筛 top-K 再走 function calling
   tool-index:

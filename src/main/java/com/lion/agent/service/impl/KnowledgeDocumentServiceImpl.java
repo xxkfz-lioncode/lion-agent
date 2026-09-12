@@ -40,6 +40,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -58,12 +59,12 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     @Value("${lion.upload.path:upload/}")
     private String uploadPath;
 
-    /** 知识库向量 collection：与检索侧默认 VectorStore 指向同一集合（dev 为 lion_base_docs、prod 为 lion_agent_knowledge） */
-    @Value("${spring.ai.vectorstore.milvus.collection-name:lion_agent_knowledge}")
+    /** 知识库向量 collection：与检索侧默认 VectorStore 指向同一集合（dev 默认 lion_base_docs、prod 默认 lion_agent_knowledge） */
+    @Value("${lion.knowledge.collection-name:lion_agent_knowledge}")
     private String collectionName;
 
     /** 向量维度，与 spring.ai.openai.embedding.model（text-embedding-v3 输出 1024 维）一致 */
-    @Value("${spring.ai.vectorstore.milvus.embedding-dimension:1024}")
+    @Value("${lion.knowledge.embedding-dimension:1024}")
     private int embeddingDimension;
 
     /** 知识库向量存储持有器：懒加载建库 + 失败自愈（非 Spring Bean，避免顶掉检索侧默认 VectorStore） */
@@ -157,27 +158,28 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
         Path savedPath = StringUtils.hasText(filePath) ? Paths.get(filePath) : null;
         try {
-            // 1. 从磁盘读取文件并解析（文件已在上传阶段落盘）
-            //    直接以 FileSystemResource 读取，避免 toUri() 对中文文件名的百分号编码在 Windows 上解析失败
+            // 1. 解析 + 2. 分片（文件已在上传阶段落盘并提供路径）
+            //    解析型策略（如 PDF 按页切分）直接读原始文件；其余策略先用 Tika 抽成纯文本再切分
             if (savedPath == null || !Files.exists(savedPath)) {
                 throw new BusinessException("文件不存在或已被清理：" + filePath);
             }
-            TikaDocumentReader reader = new TikaDocumentReader(new FileSystemResource(savedPath));
-            List<Document> parsedDocs = reader.get();
-            if (parsedDocs == null || parsedDocs.isEmpty()) {
-                throw new BusinessException("文件内容为空，无法解析");
-            }
-
-            // 2. 按选择的切分方式分片
-            List<Document> chunks = splitByStrategy(splitter, parsedDocs);
+            List<Document> chunks = splitDocument(splitter, savedPath);
 
             // 3. 写入向量库（metadata 携带知识库/文档标识/分片序号，便于按知识库过滤检索、按文档删除，
             //    以及检索后做 small-to-big 窗口扩容时定位相邻分片）
             List<Document> vectorDocs = new ArrayList<>(chunks.size());
             for (int i = 0; i < chunks.size(); i++) {
+                Document chunk = chunks.get(i);
+                Map<String, Object> metadata = buildMetadata(knowledgeId, docId, doc.getFileName(), i);
+                // 解析型策略（PDF 按页切分）会给块打上页码，透传给检索侧用于标注来源页
+                chunk.getMetadata();
+                Object page = chunk.getMetadata().get(DocumentSplitterStrategy.PAGE_METADATA_KEY);
+                if (page != null) {
+                    metadata.put(DocumentSplitterStrategy.PAGE_METADATA_KEY, page);
+                }
                 vectorDocs.add(Document.builder()
-                        .text(chunks.get(i).getText())
-                        .metadata(buildMetadata(knowledgeId, docId, doc.getFileName(), i))
+                        .text(chunk.getText())
+                        .metadata(metadata)
                         .build());
             }
             // MilvusVectorStore.add 内部会对整批做 embedding，DashScope 单次上限 10 条，分批写入
@@ -232,15 +234,27 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     }
 
     /**
-     * 根据切分方式选择对应策略执行分片：策略由 {@link SplitterStrategyRegistry} 按 type 分发，
-     * 新增切分方式只需新增一个 {@link DocumentSplitterStrategy} 实现类并声明 type()，
-     * 无需改动本方法
+     * 按切分方式解析并分片：策略由 {@link SplitterStrategyRegistry} 按 type 分发，
+     * 新增「文本切分型」策略只需新增一个实现类并声明 type()，无需改动本方法。
+     *
+     * <p>两类策略走不同分支：解析型策略（{@link DocumentSplitterStrategy#parseFromSource()} 为 true，
+     * 如 PDF 按页切分）的分块依据在原始文件结构里，直接读落盘文件；
+     * 文本切分型策略先由 Tika 抽取纯文本，再交给策略切分。</p>
      */
-    private List<Document> splitByStrategy(String splitter, List<Document> parsedDocs) {
-        if (!StringUtils.hasText(splitter)) {
-            splitter = SplitterType.TOKEN.getValue();
+    private List<Document> splitDocument(String splitter, Path savedPath) {
+        DocumentSplitterStrategy strategy = splitterStrategyRegistry.get(
+                StringUtils.hasText(splitter) ? splitter : SplitterType.TOKEN.getValue());
+        // 以 FileSystemResource 读取，避免 toUri() 对中文文件名的百分号编码在 Windows 上解析失败
+        FileSystemResource resource = new FileSystemResource(savedPath);
+        if (strategy.parseFromSource()) {
+            return strategy.parseAndSplit(resource);
         }
-        return splitterStrategyRegistry.get(splitter).split(parsedDocs);
+
+        List<Document> parsedDocs = new TikaDocumentReader(resource).get();
+        if (parsedDocs == null || parsedDocs.isEmpty()) {
+            throw new BusinessException("文件内容为空，无法解析");
+        }
+        return strategy.split(parsedDocs);
     }
 
 
@@ -281,31 +295,99 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         if (!StringUtils.hasText(doc.getFilePath())) {
             return "文件尚未落盘，无法预览";
         }
-        if (!isTextPreviewable(doc.getFileType())) {
-            return String.format("当前文件类型「%s」不支持文本预览，仅支持 text/plain、text/markdown", doc.getFileType());
-        }
 
         Path path = Paths.get(doc.getFilePath());
         if (!Files.exists(path)) {
             return "文件已丢失，无法预览";
         }
 
+        boolean plainText = isPlainTextPreviewable(doc);
+        boolean tikaParsable = isTikaPreviewable(doc);
+        if (!plainText && !tikaParsable) {
+            return String.format("当前文件类型「%s」不支持预览，仅支持 txt / md / pdf / doc / docx", doc.getFileType());
+        }
+
         try {
-            byte[] bytes = Files.readAllBytes(path);
-            String text = new String(bytes, StandardCharsets.UTF_8);
-            int maxLen = 5000;
-            if (text.length() > maxLen) {
-                return text.substring(0, maxLen) + "\n\n……（已截断，仅展示前 " + maxLen + " 字符）";
-            }
-            return text;
-        } catch (IOException e) {
+            // 纯文本按 UTF-8 直读；PDF/Word 交给 Tika 抽取正文（与入库解析同一套能力，预览即实际切分内容）
+            String text = plainText
+                    ? new String(Files.readAllBytes(path), StandardCharsets.UTF_8)
+                    : parseWithTika(path);
+            return truncatePreview(text);
+        } catch (Exception e) {
             log.warn("预览文档失败，docId={}", docId, e);
             return "读取文件失败：" + e.getMessage();
         }
     }
 
-    private boolean isTextPreviewable(String fileType) {
+    /** 预览截断上限：超出仅展示前 5000 字符，避免大文档把响应撑爆 */
+    private static final int PREVIEW_MAX_LEN = 5000;
+
+    private String truncatePreview(String text) {
+        if (text == null) {
+            return "";
+        }
+        if (text.length() > PREVIEW_MAX_LEN) {
+            return text.substring(0, PREVIEW_MAX_LEN) + "\n\n……（已截断，仅展示前 " + PREVIEW_MAX_LEN + " 字符）";
+        }
+        return text;
+    }
+
+    /**
+     * 纯文本预览：按扩展名判断，兼容 fileType 存 MIME（text/plain、text/markdown）或扩展名的历史数据
+     */
+    private boolean isPlainTextPreviewable(KnowledgeDocument doc) {
+        String ext = fileExtension(doc);
+        if ("txt".equals(ext) || "md".equals(ext) || "markdown".equals(ext)) {
+            return true;
+        }
+        String fileType = doc.getFileType();
         return "text/plain".equalsIgnoreCase(fileType) || "text/markdown".equalsIgnoreCase(fileType);
+    }
+
+    /**
+     * PDF / Word 预览：交由 Tika 抽取文本，同样兼容扩展名与 MIME 两种存量数据
+     */
+    private boolean isTikaPreviewable(KnowledgeDocument doc) {
+        String ext = fileExtension(doc);
+        if ("pdf".equals(ext) || "doc".equals(ext) || "docx".equals(ext)) {
+            return true;
+        }
+        if (!StringUtils.hasText(doc.getFileType())) {
+            return false;
+        }
+        String fileType = doc.getFileType().toLowerCase(Locale.ROOT);
+        return fileType.startsWith("application/pdf")
+                || fileType.startsWith("application/msword")
+                || fileType.startsWith("application/vnd.openxmlformats-officedocument.wordprocessingml");
+    }
+
+    /**
+     * 取文件扩展名（小写、不含点）；取不到返回空串
+     */
+    private String fileExtension(KnowledgeDocument doc) {
+        String fileName = doc.getFileName();
+        if (!StringUtils.hasText(fileName)) {
+            return "";
+        }
+        int dot = fileName.lastIndexOf('.');
+        return dot < 0 || dot == fileName.length() - 1 ? "" : fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * 用 Tika 解析文档正文（PDF / doc / docx 等），返回抽取到的纯文本
+     */
+    private String parseWithTika(Path path) {
+        List<Document> docs = new TikaDocumentReader(new FileSystemResource(path)).get();
+        if (docs == null || docs.isEmpty()) {
+            return "";
+        }
+        String text = docs.stream()
+                .map(Document::getText)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.joining("\n"));
+        return StringUtils.hasText(text)
+                ? text
+                : "未提取到文本内容（可能是扫描件/图片型 PDF，无法做文本预览）";
     }
 
     private Map<String, Object> buildMetadata(Long knowledgeId, Long docId, String fileName, int chunkIndex) {

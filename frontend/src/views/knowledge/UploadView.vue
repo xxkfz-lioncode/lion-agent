@@ -22,6 +22,13 @@
           @keyup.enter="onSearch"
         >
         <button class="search-btn" @click="onSearch">查询</button>
+        <select
+          v-model="splitter"
+          class="splitter-select"
+          title="上传文档时使用的切分方式"
+        >
+          <option v-for="opt in splitterOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+        </select>
         <input
           ref="fileInput"
           type="file"
@@ -48,13 +55,18 @@
         </thead>
         <tbody>
           <tr v-for="doc in docList" :key="doc.id">
-            <td class="cell-name" :title="doc.fileName">{{ doc.fileName }}</td>
+            <td class="cell-name" :title="doc.fileName">
+              <span class="name-text">{{ doc.fileName }}</span>
+            </td>
             <td class="cell-size">{{ formatSize(doc.fileSize) }}</td>
-            <td class="cell-type">{{ doc.fileType || '-' }}</td>
+            <td class="cell-type" :title="doc.fileType">{{ formatFileType(doc.fileType) }}</td>
             <td class="cell-status">
               <span class="status-tag" :class="statusClass(doc.status)">{{ statusLabel(doc.status) }}</span>
+              <div v-if="doc.status === 0 && doc.failReason" class="fail-reason" :title="doc.failReason">
+                {{ doc.failReason }}
+              </div>
             </td>
-            <td class="cell-splitter">{{ splitterLabel(doc.splitter) }}</td>
+            <td class="cell-splitter" :title="splitterLabel(doc.splitter)">{{ splitterLabel(doc.splitter) }}</td>
             <td class="cell-time">{{ formatTime(doc.createdAt) }}</td>
             <td class="cell-actions">
               <button class="action-btn primary" title="预览" @click="openPreview(doc)">
@@ -96,13 +108,17 @@
             </div>
             <div class="meta-row">
               <span class="meta-label">文件类型</span>
-              <span class="meta-value">{{ previewDoc.fileType || '-' }}</span>
+              <span class="meta-value" :title="previewDoc.fileType">{{ formatFileType(previewDoc.fileType) }}</span>
             </div>
             <div class="meta-row">
               <span class="meta-label">处理状态</span>
               <span class="meta-value">
                 <span class="status-tag" :class="statusClass(previewDoc.status)">{{ statusLabel(previewDoc.status) }}</span>
               </span>
+            </div>
+            <div v-if="previewDoc.status === 0 && previewDoc.failReason" class="meta-row meta-row-fail">
+              <span class="meta-label">失败原因</span>
+              <span class="meta-value fail-reason-text">{{ previewDoc.failReason }}</span>
             </div>
             <div class="meta-row">
               <span class="meta-label">切分方式</span>
@@ -137,7 +153,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { listDocuments, uploadDocument, deleteDocument, previewDocument, listKnowledge } from '../../api/knowledge'
 import ConfirmDialog from '../../components/ConfirmDialog.vue'
@@ -169,8 +185,16 @@ const splitterMap = {
   paragraph: '段落切分',
   sentence: '句子切分',
   line: '行切分',
-  semantic: '语义切分'
+  semantic: '语义切分',
+  page: '按页切分（PDF）'
 }
+
+// 上传时可选的切分方式（与后端 SplitterType 的 value 一一对应）
+const splitterOptions = Object.entries(splitterMap).map(([value, label]) => ({ value, label }))
+
+// 记忆上次选择的切分方式，避免每次上传都要重新选
+const splitter = ref(localStorage.getItem('last-selected-splitter') || 'token')
+watch(splitter, value => localStorage.setItem('last-selected-splitter', value))
 
 onMounted(async () => {
   await loadKnowledgeList()
@@ -232,6 +256,16 @@ function formatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(2) + ' MB'
 }
 
+function formatFileType(type) {
+  if (!type) return '-'
+  const t = type.toLowerCase()
+  if (t.includes('pdf')) return 'PDF'
+  if (t.includes('word') || t.includes('officedocument.wordprocessingml')) return 'Word'
+  if (t.includes('markdown') || t.includes('md')) return 'Markdown'
+  if (t.includes('text/plain')) return '纯文本'
+  return '其他'
+}
+
 function formatTime(time) {
   if (!time) return '-'
   const date = new Date(time)
@@ -283,14 +317,14 @@ async function onFileSelected(e) {
     return
   }
 
-  // 读取当前表单中的切分方式（由父组件通过 provide/inject 或 query 维护，默认 token）
-  const splitter = localStorage.getItem('last-selected-splitter') || 'token'
+  // 取当前下拉选择的切分方式（默认 token）
+  const splitterType = splitter.value || 'token'
 
   uploading.value = true
   try {
     const formData = new FormData()
     formData.append('file', file)
-    formData.append('splitter', splitter)
+    formData.append('splitter', splitterType)
     await uploadDocument(kbId, formData)
     await loadList()
   } catch (err) {
@@ -416,6 +450,23 @@ function closePreview() {
   border-color: #4f66f9;
 }
 
+.splitter-select {
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-main);
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+  max-width: 180px;
+}
+
+.splitter-select:focus {
+  border-color: #4f66f9;
+}
+
 .search-btn,
 .upload-btn {
   border: none;
@@ -444,6 +495,7 @@ function closePreview() {
 
 .doc-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   background: #fff;
   border: 1px solid var(--border);
@@ -454,7 +506,7 @@ function closePreview() {
 
 .doc-table th,
 .doc-table td {
-  padding: 12px 16px;
+  padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
@@ -478,19 +530,25 @@ function closePreview() {
   background: #fafbff;
 }
 
-.col-name { width: auto; min-width: 180px; }
-.col-size { width: 90px; }
-.col-type { width: 120px; }
-.col-status { width: 90px; }
+.col-name { width: 30%; min-width: 160px; }
+.col-size { width: 70px; }
+.col-type { width: 75px; }
+.col-status { width: 120px; }
 .col-splitter { width: 110px; }
-.col-time { width: 150px; }
-.col-actions { width: 150px; white-space: nowrap; }
+.col-time { width: 140px; }
+.col-actions { width: 120px; white-space: nowrap; }
 
 .cell-name {
-  max-width: 260px;
+  overflow: hidden;
+}
+
+.cell-name .name-text {
+  display: inline-block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  vertical-align: middle;
 }
 
 .cell-size,
@@ -498,6 +556,29 @@ function closePreview() {
 .cell-splitter,
 .cell-time {
   color: var(--text-sub);
+}
+
+.fail-reason {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #f44336;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta-row-fail {
+  grid-column: 1 / -1;
+}
+
+.meta-row-fail .fail-reason-text {
+  color: #f44336;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+  min-width: 0;
 }
 
 .status-tag {

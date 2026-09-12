@@ -23,7 +23,9 @@ public enum SplitterType {
     LINE("line"),
 
     /** 语义切分 */
-    SEMANTIC("semantic");
+    SEMANTIC("semantic"),
+
+    PAGE("page");
 
     /** 对外标识：对应前端上传时选择的切分方式 */
     private final String value;

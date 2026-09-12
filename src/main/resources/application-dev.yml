@@ -1,7 +1,4 @@
 # ==================== 开发环境 ====================
-server:
-  port: 8080
-
 spring:
   # ==================== 数据源 ====================
   datasource:
@@ -49,7 +46,8 @@ spring:
           host: ${MILVUS_HOST:127.0.0.1}
           port: ${MILVUS_PORT:19530}
         database-name: ${MILVUS_DATABASE:default}
-        collection-name: ${MILVUS_COLLECTION:lion_base_docs}
+        # 默认 VectorStore Bean
+        collection-name:  ${MILVUS_COLLECTION:lion_base_docs}
         embedding-dimension: 1024
 #        metric-type: COSINE
 #        index-type: HNSW
