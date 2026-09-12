@@ -17,49 +17,15 @@
 
 ## 项目效果图
 
-> 截图统一放在 `docs/images/` 目录，按下方文件名保存即可正常显示（建议 PNG、宽度 ≥ 1600px）。
+![image-20260912130800875](README.assets/image-20260912130800875.png)
 
-**登录 / 注册**（`login.png`）
+![image-20260912130911330](README.assets/image-20260912130911330.png)
 
-![登录注册](docs/images/login.png)
+![image-20260912131122888](README.assets/image-20260912131122888.png)
 
-**首页 / 导航**（`home.png`）
+![image-20260912131240220](README.assets/image-20260912131240220.png)
 
-![首页](docs/images/home.png)
 
-**智能对话（同步 / SSE 流式 + 引用溯源）**（`chat.png`）
-
-![智能对话](docs/images/chat.png)
-
-**多模态对话（图文混合）**（`multimodal-chat.png`）
-
-![多模态对话](docs/images/multimodal-chat.png)
-
-**知识库上传与解析入库**（`knowledge-upload.png`）
-
-![知识库上传](docs/images/knowledge-upload.png)
-
-**知识库管理**（`knowledge-manage.png`）
-
-![知识库管理](docs/images/knowledge-manage.png)
-
-**长期记忆（用户画像）**（`memory.png`）
-
-![长期记忆](docs/images/memory.png)
-
-**自定义技能管理（含试跑）**（`skill-manage.png`）
-
-![技能管理](docs/images/skill-manage.png)
-
-**MCP 服务管理（远程工具接入）**（`mcp-manage.png`）
-
-![MCP 管理](docs/images/mcp-manage.png)
-
-**Token 用量统计**（`token-usage.png`）
-
-![Token 用量](docs/images/token-usage.png)
-
-**可选补充**：提示词模板管理（`prompt-manage.png`）、Langfuse 链路追踪与对话评分（`langfuse-trace.png`）。
 
 ## 技术栈
 
