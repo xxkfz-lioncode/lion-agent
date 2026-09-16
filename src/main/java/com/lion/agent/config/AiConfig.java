@@ -16,6 +16,7 @@ import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.client.advisor.ToolCallingAdvisor;
 import org.springframework.ai.chat.client.advisor.toolsearch.ToolSearchToolCallingAdvisor;
 import org.springframework.ai.chat.client.advisor.toolsearch.autoconfigure.ToolSearchAdvisorProperties;
+import org.springframework.ai.embedding.BatchingStrategy;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.tool.toolsearch.ToolIndex;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -26,6 +27,10 @@ import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.ai.document.Document;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Spring AI 配置
@@ -59,6 +64,30 @@ public class AiConfig {
     private int memoryInjectTopK;
 
     /**
+     * 自定义 Embedding 分批策略（DashScope 适配）。
+     * <p>
+     * 背景：容器中所有向量化入口（VectorStore 写入、ETL 流水线等）默认使用
+     * {@code TokenCountBatchingStrategy}（按 token 预算分批），其单批条数上限为 512，
+     * 远超 DashScope embedding 接口「单批最多 10 条」的硬性限制；
+     * 工具索引、知识库文档等批量写入时一旦超过 10 条即报
+     * {@code 400 batch size is invalid, it should not be larger than 10}。
+     * <p>
+     * 这里将分批策略固定为「每批至多 10 条」，Spring AI 会自动装配到
+     * {@code EmbeddingModel} 的批处理链路，从根源上避免超限。
+     */
+    @Bean
+    public BatchingStrategy customBatchingStrategy() {
+        return documents -> {
+            List<List<Document>> batches = new ArrayList<>();
+            int maxBatchSize = 10; // DashScope 硬性限制
+            for (int i = 0; i < documents.size(); i += maxBatchSize) {
+                batches.add(documents.subList(i, Math.min(i + maxBatchSize, documents.size())));
+            }
+            return batches;
+        };
+    }
+
+    /**
      * 多模态对话专用 ChatClient（图片 + 文本）。
      * <p>
      * 与 {@link #chatClient(ChatClient.Builder, ChatMemory, QaCacheService, ChatMessageMapper,
@@ -69,8 +98,6 @@ public class AiConfig {
      * 仅通过 defaultOptions 切换独立的多模态模型名（默认 qwen-vl-max，可用
      * {@code lion.multimodal.model} 覆盖）。不新增 ChatModel Bean，避免容器内多模型注入歧义。
      */
-
-
     @Bean
     public ChatClient multimodalChatClient(ChatModel chatModel,
                                            PromptConfig promptConfig,
