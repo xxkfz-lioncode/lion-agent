@@ -1,6 +1,6 @@
 package com.lion.agent.service;
 
-import com.lion.agent.model.entity.AiMemory;
+import com.lion.agent.pojo.entity.AiMemory;
 
 import java.util.List;
 

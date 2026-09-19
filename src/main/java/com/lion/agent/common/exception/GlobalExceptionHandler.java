@@ -1,0 +1,86 @@
+package com.lion.agent.common.exception;
+
+import cn.dev33.satoken.exception.NotLoginException;
+import cn.dev33.satoken.exception.NotPermissionException;
+import com.lion.agent.common.result.R;
+import com.lion.agent.common.result.ResultCode;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.validation.BindException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+
+/**
+ * 全局异常处理器
+ */
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    /**
+     * Sa-Token 未登录异常
+     */
+    @ExceptionHandler(NotLoginException.class)
+    public R<Void> handleNotLogin(NotLoginException e) {
+        log.warn("未登录访问：{}", e.getMessage());
+        return R.error(ResultCode.UNAUTHORIZED);
+    }
+
+    /**
+     * Sa-Token 无权限异常
+     */
+    @ExceptionHandler(NotPermissionException.class)
+    public R<Void> handleNotPermission(NotPermissionException e) {
+        log.warn("无权限访问：{}", e.getMessage());
+        return R.error(ResultCode.FORBIDDEN);
+    }
+
+    /**
+     * 业务异常
+     */
+    @ExceptionHandler(BusinessException.class)
+    public R<Void> handleBusiness(BusinessException e) {
+        log.warn("业务异常：{}", e.getMessage());
+        return R.error(e.getCode(), e.getMessage());
+    }
+
+    /**
+     * 参数校验异常（@Valid @RequestBody）
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public R<Void> handleValid(MethodArgumentNotValidException e) {
+        FieldError fieldError = e.getBindingResult().getFieldError();
+        String message = fieldError != null ? fieldError.getDefaultMessage() : "参数错误";
+        return R.error(ResultCode.PARAM_ERROR, message);
+    }
+
+    /**
+     * 参数绑定异常（表单）
+     */
+    @ExceptionHandler(BindException.class)
+    public R<Void> handleBind(BindException e) {
+        FieldError fieldError = e.getBindingResult().getFieldError();
+        String message = fieldError != null ? fieldError.getDefaultMessage() : "参数错误";
+        return R.error(ResultCode.PARAM_ERROR, message);
+    }
+
+    /**
+     * 文件上传体积超限
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public R<Void> handleMaxUploadSize(MaxUploadSizeExceededException e) {
+        log.warn("上传文件超出大小限制：{}", e.getMessage());
+        return R.error(ResultCode.PARAM_ERROR, "上传文件过大，单个文件不能超过 10MB，单次请求总大小不能超过 20MB");
+    }
+
+    /**
+     * 兜底异常
+     */
+    @ExceptionHandler(Exception.class)
+    public R<Void> handleException(Exception e) {
+        log.error("系统异常", e);
+        return R.error(ResultCode.SYSTEM_ERROR);
+    }
+}

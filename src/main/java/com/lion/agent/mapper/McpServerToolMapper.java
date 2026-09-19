@@ -1,7 +1,7 @@
 package com.lion.agent.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.lion.agent.model.entity.McpServerToolEntity;
+import com.lion.agent.pojo.entity.McpServerToolEntity;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

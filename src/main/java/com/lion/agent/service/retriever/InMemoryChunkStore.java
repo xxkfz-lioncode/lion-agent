@@ -1,6 +1,6 @@
 package com.lion.agent.service.retriever;
 
-import com.lion.agent.utils.MilvusQueryUtils;
+import com.lion.agent.common.utils.MilvusQueryUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Value;

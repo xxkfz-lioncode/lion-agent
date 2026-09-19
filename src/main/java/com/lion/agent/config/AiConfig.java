@@ -6,7 +6,7 @@ import com.lion.agent.advisor.QaCacheAdvisor;
 import com.lion.agent.advisor.TokenUsageAdvisor;
 import com.lion.agent.mapper.ChatMessageMapper;
 import com.lion.agent.mapper.ConversationSummaryMapper;
-import com.lion.agent.memory.ReadLimitChatMemory;
+import com.lion.agent.advisor.memory.ReadLimitChatMemory;
 import com.lion.agent.service.MemoryService;
 import com.lion.agent.service.QaCacheService;
 import com.lion.agent.service.TokenUsageService;

@@ -1,8 +1,9 @@
 package com.lion.agent.service;
 
-import com.lion.agent.common.PageResult;
-import com.lion.agent.model.dto.SkillRequest;
-import com.lion.agent.model.entity.Skill;
+import com.lion.agent.common.result.PageResult;
+import com.lion.agent.pojo.dto.SkillRequest;
+import com.lion.agent.pojo.entity.Skill;
+import com.lion.agent.skill.SkillToolRegistry;
 
 import java.util.Map;
 

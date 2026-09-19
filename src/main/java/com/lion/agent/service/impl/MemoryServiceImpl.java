@@ -3,8 +3,8 @@ package com.lion.agent.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lion.agent.common.enums.MemoryType;
 import com.lion.agent.common.enums.VectorType;
-import com.lion.agent.common.util.LazyMilvusVectorStore;
-import com.lion.agent.model.entity.AiMemory;
+import com.lion.agent.common.utils.LazyMilvusVectorStoreUtils;
+import com.lion.agent.pojo.entity.AiMemory;
 import com.lion.agent.mapper.AiMemoryMapper;
 import com.lion.agent.service.MemoryExtractor;
 import com.lion.agent.service.MemoryService;
@@ -73,19 +73,19 @@ public class MemoryServiceImpl implements MemoryService {
     private int searchTopK;
 
     /** 懒加载的 Milvus 向量存储持有器（首次使用时初始化建库；初始化失败即抛，由上层兜底） */
-    private volatile LazyMilvusVectorStore memoryStore;
+    private volatile LazyMilvusVectorStoreUtils memoryStore;
 
     /**
-     * 懒加载获取 Milvus 向量存储（建表逻辑统一收敛于 {@link LazyMilvusVectorStore}，
+     * 懒加载获取 Milvus 向量存储（建表逻辑统一收敛于 {@link LazyMilvusVectorStoreUtils}，
      * 此处仅在首次访问时组装参数，@Value 注入完成后才可用）
      */
     private MilvusVectorStore store() {
-        LazyMilvusVectorStore holder = memoryStore;
+        LazyMilvusVectorStoreUtils holder = memoryStore;
         if (holder == null) {
             synchronized (this) {
                 holder = memoryStore;
                 if (holder == null) {
-                    holder = new LazyMilvusVectorStore(milvusClient, embeddingModel,
+                    holder = new LazyMilvusVectorStoreUtils(milvusClient, embeddingModel,
                             collectionName, embeddingDimension, "长期记忆");
                     memoryStore = holder;
                 }

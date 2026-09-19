@@ -1,17 +1,17 @@
 package com.lion.agent.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.lion.agent.model.dto.McpServerRequest;
-import com.lion.agent.model.entity.McpServerEntity;
-import com.lion.agent.model.entity.McpServerToolEntity;
+import com.lion.agent.pojo.dto.McpServerRequest;
+import com.lion.agent.pojo.entity.McpServerEntity;
+import com.lion.agent.pojo.entity.McpServerToolEntity;
 import com.lion.agent.event.McpServerChangedEvent;
-import com.lion.agent.exception.BusinessException;
+import com.lion.agent.common.exception.BusinessException;
 import cn.hutool.json.JSONUtil;
 import com.lion.agent.mapper.McpServerMapper;
 import com.lion.agent.mapper.McpServerToolMapper;
 import com.lion.agent.service.McpServerService;
-import com.lion.agent.model.vo.McpServerVo;
-import com.lion.agent.model.vo.McpToolVo;
+import com.lion.agent.pojo.vo.McpServerVo;
+import com.lion.agent.pojo.vo.McpToolVo;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;

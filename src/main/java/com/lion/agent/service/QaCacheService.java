@@ -1,7 +1,7 @@
 package com.lion.agent.service;
 
 import com.lion.agent.common.enums.VectorType;
-import com.lion.agent.common.util.LazyMilvusVectorStore;
+import com.lion.agent.common.utils.LazyMilvusVectorStoreUtils;
 import io.milvus.client.MilvusServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -68,7 +68,7 @@ public class QaCacheService {
     private int topK;
 
     /** 语义缓存专用向量存储持有器（懒加载建库，独立 collection，非 Spring Bean） */
-    private volatile LazyMilvusVectorStore cacheStore;
+    private volatile LazyMilvusVectorStoreUtils cacheStore;
 
     /**
      * 懒加载获取缓存向量库：首次调用（或上次失败后）才构建并建表。
@@ -77,17 +77,17 @@ public class QaCacheService {
      * （createCollection + createIndex + loadCollection）发生在 {@code afterPropertiesSet()}
      * 中，这是 Spring bean 生命周期回调，只有容器管理的 bean 才会被自动调用；而本类刻意不把
      * 它注册成 Bean（否则会顶掉自动配置的默认 VectorStore、破坏知识库 RAG），所以必须手动触发。
-     * 懒加载 + 建表 + 失败降级/重试统一收敛在 {@link LazyMilvusVectorStore}，此处仅在首次访问时
+     * 懒加载 + 建表 + 失败降级/重试统一收敛在 {@link LazyMilvusVectorStoreUtils}，此处仅在首次访问时
      * 组装参数（@Value 注入完成后才可用）；业务方法无需任何前置初始化步骤，失败也会在下次
      * 调用时自动自愈。</p>
      */
     private MilvusVectorStore store() {
-        LazyMilvusVectorStore holder = cacheStore;
+        LazyMilvusVectorStoreUtils holder = cacheStore;
         if (holder == null) {
             synchronized (this) {
                 holder = cacheStore;
                 if (holder == null) {
-                    holder = new LazyMilvusVectorStore(milvusClient, embeddingModel,
+                    holder = new LazyMilvusVectorStoreUtils(milvusClient, embeddingModel,
                             collectionName, embeddingDimension, "语义缓存");
                     cacheStore = holder;
                 }

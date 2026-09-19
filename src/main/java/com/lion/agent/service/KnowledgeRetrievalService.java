@@ -2,12 +2,12 @@ package com.lion.agent.service;
 
 import com.lion.agent.common.enums.VectorType;
 import com.lion.agent.config.PromptConfig;
-import com.lion.agent.model.entity.KnowledgeBase;
+import com.lion.agent.pojo.entity.KnowledgeBase;
 import com.lion.agent.service.retriever.ChunkPos;
 import com.lion.agent.service.retriever.MilvusChunkReader;
 import com.lion.agent.service.retriever.MultiRouteRetriever;
-import com.lion.agent.utils.DashScopeRerankUtils;
-import com.lion.agent.model.vo.ChunkSource;
+import com.lion.agent.common.utils.DashScopeRerankUtils;
+import com.lion.agent.pojo.vo.ChunkSource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
@@ -15,7 +15,6 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.HashSet;

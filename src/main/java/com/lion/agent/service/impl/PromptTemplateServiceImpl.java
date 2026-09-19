@@ -1,12 +1,12 @@
 package com.lion.agent.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.lion.agent.model.dto.PromptTemplateRequest;
-import com.lion.agent.model.entity.PromptTemplateEntity;
-import com.lion.agent.exception.BusinessException;
+import com.lion.agent.pojo.dto.PromptTemplateRequest;
+import com.lion.agent.pojo.entity.PromptTemplateEntity;
+import com.lion.agent.common.exception.BusinessException;
 import com.lion.agent.mapper.PromptTemplateMapper;
 import com.lion.agent.service.PromptTemplateService;
-import com.lion.agent.model.vo.PromptTemplateVo;
+import com.lion.agent.pojo.vo.PromptTemplateVo;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

@@ -1,7 +1,7 @@
 package com.lion.agent.service;
 
-import com.lion.agent.common.PageResult;
-import com.lion.agent.model.entity.KnowledgeDocument;
+import com.lion.agent.common.result.PageResult;
+import com.lion.agent.pojo.entity.KnowledgeDocument;
 import org.springframework.web.multipart.MultipartFile;
 
 public interface KnowledgeDocumentService {

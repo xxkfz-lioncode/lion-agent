@@ -1,8 +1,8 @@
 package com.lion.agent.service;
 
-import com.lion.agent.model.dto.McpServerRequest;
-import com.lion.agent.model.vo.McpServerVo;
-import com.lion.agent.model.vo.McpToolVo;
+import com.lion.agent.pojo.dto.McpServerRequest;
+import com.lion.agent.pojo.vo.McpServerVo;
+import com.lion.agent.pojo.vo.McpToolVo;
 import org.springframework.ai.tool.ToolCallback;
 
 import java.util.List;

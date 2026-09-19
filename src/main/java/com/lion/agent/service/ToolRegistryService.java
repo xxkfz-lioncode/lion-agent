@@ -2,15 +2,16 @@ package com.lion.agent.service;
 
 import cn.dev33.satoken.stp.StpInterface;
 import cn.hutool.json.JSONUtil;
-import com.lion.agent.annotation.ToolPermission;
-import com.lion.agent.model.vo.LocalToolVo;
+import com.lion.agent.aspect.annotation.ToolPermission;
+import com.lion.agent.pojo.vo.LocalToolVo;
 import com.lion.agent.common.enums.VectorType;
-import com.lion.agent.common.util.LazyMilvusVectorStore;
+import com.lion.agent.common.utils.LazyMilvusVectorStoreUtils;
 import com.lion.agent.event.McpServerChangedEvent;
-import com.lion.agent.tools.DateTools;
-import com.lion.agent.tools.StarFortuneTools;
-import com.lion.agent.tools.TimeLimiterTools;
-import com.lion.agent.tools.UserTools;
+import com.lion.agent.skill.SkillToolRegistry;
+import com.lion.agent.tools.base.DateTools;
+import com.lion.agent.tools.base.StarFortuneTools;
+import com.lion.agent.tools.base.TimeLimiterTools;
+import com.lion.agent.tools.base.UserTools;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.milvus.client.MilvusServiceClient;
 import lombok.RequiredArgsConstructor;
@@ -113,7 +114,7 @@ public class ToolRegistryService {
     private int embeddingDimension;
 
     /** 工具索引专用向量存储持有器（懒加载建库，非 Spring Bean，避免顶掉知识库默认 VectorStore） */
-    private volatile LazyMilvusVectorStore toolVectorStore;
+    private volatile LazyMilvusVectorStoreUtils toolVectorStore;
 
     public final ToolCallback weatherTool;
     public final ToolCallback holidayCountdownTool;
@@ -151,15 +152,15 @@ public class ToolRegistryService {
      * （lion_agent_knowledge，与知识库 RAG 共用），工具索引的"按 type 清空重建"会清掉
      * 同库的知识库/技能向量；且工具索引与知识库的维度/生命周期都不同，应物理隔离。
      * 这里刻意不注册成 Bean，而是懒加载持有独立 collection 的实例——懒加载 + 建表 +
-     * 失败重试统一收敛在 {@link LazyMilvusVectorStore}，返回 null 表示降级（检索方自带兜底）。</p>
+     * 失败重试统一收敛在 {@link LazyMilvusVectorStoreUtils}，返回 null 表示降级（检索方自带兜底）。</p>
      */
     private MilvusVectorStore store() {
-        LazyMilvusVectorStore holder = toolVectorStore;
+        LazyMilvusVectorStoreUtils holder = toolVectorStore;
         if (holder == null) {
             synchronized (this) {
                 holder = toolVectorStore;
                 if (holder == null) {
-                    holder = new LazyMilvusVectorStore(milvusClient, embeddingModel,
+                    holder = new LazyMilvusVectorStoreUtils(milvusClient, embeddingModel,
                             collectionName, embeddingDimension, "工具索引");
                     toolVectorStore = holder;
                 }

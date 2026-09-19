@@ -2,10 +2,10 @@ package com.lion.agent.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
-import com.lion.agent.common.PageResult;
-import com.lion.agent.common.Result;
-import com.lion.agent.model.dto.KnowledgeBaseRequest;
-import com.lion.agent.model.entity.KnowledgeBase;
+import com.lion.agent.common.result.PageResult;
+import com.lion.agent.common.result.R;
+import com.lion.agent.pojo.dto.KnowledgeBaseRequest;
+import com.lion.agent.pojo.entity.KnowledgeBase;
 import com.lion.agent.service.KnowledgeBaseService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,34 +26,34 @@ public class KnowledgeBaseController {
 
     @Operation(summary = "知识库列表")
     @GetMapping
-    public Result<PageResult<KnowledgeBase>> list(
+    public R<PageResult<KnowledgeBase>> list(
             @RequestParam(required = false, defaultValue = "1") @Min(1) int pageNum,
             @RequestParam(required = false, defaultValue = "10") @Min(1) @Max(100) int pageSize,
             @RequestParam(required = false) String keyword) {
         Long userId = StpUtil.getLoginIdAsLong();
-        return Result.success(knowledgeBaseService.listByUser(userId, pageNum, pageSize, keyword));
+        return R.success(knowledgeBaseService.listByUser(userId, pageNum, pageSize, keyword));
     }
 
     @Operation(summary = "创建知识库")
     @PostMapping
-    public Result<KnowledgeBase> create(@Valid @RequestBody KnowledgeBaseRequest request) {
+    public R<KnowledgeBase> create(@Valid @RequestBody KnowledgeBaseRequest request) {
         Long userId = StpUtil.getLoginIdAsLong();
-        return Result.success(knowledgeBaseService.create(userId, request));
+        return R.success(knowledgeBaseService.create(userId, request));
     }
 
     @Operation(summary = "修改知识库")
     @PutMapping("/{id}")
-    public Result<KnowledgeBase> update(@PathVariable Long id,
-                                        @Valid @RequestBody KnowledgeBaseRequest request) {
+    public R<KnowledgeBase> update(@PathVariable Long id,
+                                   @Valid @RequestBody KnowledgeBaseRequest request) {
         Long userId = StpUtil.getLoginIdAsLong();
-        return Result.success(knowledgeBaseService.update(id, userId, request));
+        return R.success(knowledgeBaseService.update(id, userId, request));
     }
 
     @Operation(summary = "删除知识库")
     @DeleteMapping("/{id}")
-    public Result<Void> delete(@PathVariable Long id) {
+    public R<Void> delete(@PathVariable Long id) {
         Long userId = StpUtil.getLoginIdAsLong();
         knowledgeBaseService.delete(id, userId);
-        return Result.success();
+        return R.success();
     }
 }

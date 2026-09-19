@@ -324,7 +324,7 @@ resilience4j:
           - org.springframework.web.reactive.function.client.WebClientResponseException # WebClient 调用远端返回 4xx/5xx
           - java.net.ConnectException              # 连接被拒绝（远端不可达）
           - java.util.concurrent.TimeoutException  # 调用超时
-          - com.lion.agent.exception.BusinessException # 统一业务包装异常，必须计入，否则业务错误码场景熔断无法触发
+          - com.lion.agent.common.exception.BusinessException # 统一业务包装异常，必须计入，否则业务错误码场景熔断无法触发
       # ==================== queryStarFortune：星座运势工具（StarFortuneTools.queryStarFortune，调 ALAPI） ====================
       queryStarFortune:
         sliding-window-type: COUNT_BASED          # 基于调用次数的滑动窗口
@@ -334,7 +334,7 @@ resilience4j:
         wait-duration-in-open-state: 60s          # 熔断器打开后，等待 60 秒进入半开状态
         permitted-number-of-calls-in-half-open-state: 3 # 半开状态下允许 3 个试探请求
         record-exceptions:                        # 记录哪些异常算作失败
-          - com.lion.agent.exception.BusinessException # ALAPI 调用异常、业务错误码均包装为该异常计入失败
+          - com.lion.agent.common.exception.BusinessException # ALAPI 调用异常、业务错误码均包装为该异常计入失败
       # ==================== userTools：用户查询工具（UserTools.getUserCount / getUserStatusSummary，查 MySQL） ====================
       userTools:
         sliding-window-type: COUNT_BASED          # 基于调用次数的滑动窗口
@@ -344,7 +344,7 @@ resilience4j:
         wait-duration-in-open-state: 60s          # 熔断器打开后，等待 60 秒进入半开状态
         permitted-number-of-calls-in-half-open-state: 3 # 半开状态下允许 3 个试探请求
         record-exceptions:                        # 记录哪些异常算作失败（本地 DB 查询，主要兜底数据库不可用等场景）
-          - com.lion.agent.exception.BusinessException
+          - com.lion.agent.common.exception.BusinessException
       # ==================== dateTools：时间查询工具（DateTools.getNowDate，纯本地计算） ====================
       dateTools:
         sliding-window-type: COUNT_BASED          # 基于调用次数的滑动窗口
@@ -354,7 +354,7 @@ resilience4j:
         wait-duration-in-open-state: 60s          # 熔断器打开后，等待 60 秒进入半开状态
         permitted-number-of-calls-in-half-open-state: 3 # 半开状态下允许 3 个试探请求
         record-exceptions:                        # 记录哪些异常算作失败
-          - com.lion.agent.exception.BusinessException
+          - com.lion.agent.common.exception.BusinessException
       # ==================== dashScopeRerank：DashScope Rerank API（DashScopeRerankUtils.rerank，外部 HTTP 调用） ====================
       dashScopeRerank:
         sliding-window-type: COUNT_BASED          # 基于调用次数的滑动窗口
@@ -367,7 +367,7 @@ resilience4j:
           - org.springframework.web.client.ResourceAccessException    # 连接/IO 异常（远端不可达、网络抖动）
           - org.springframework.web.client.RestClientResponseException  # HTTP 4xx/5xx
           - java.util.concurrent.TimeoutException                       # 调用超时
-          - com.lion.agent.exception.BusinessException                # 业务包装异常（响应解析失败、业务错误）
+          - com.lion.agent.common.exception.BusinessException                # 业务包装异常（响应解析失败、业务错误）
 
   # ==================== 限时器（TimeLimiter）：与 @TimeLimiter 注解配套 ====================
   # 注意：@TimeLimiter 要求方法返回 CompletableFuture，与 SseEmitter 不兼容，

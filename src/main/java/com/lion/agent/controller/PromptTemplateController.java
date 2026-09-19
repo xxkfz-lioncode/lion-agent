@@ -1,10 +1,10 @@
 package com.lion.agent.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
-import com.lion.agent.common.Result;
-import com.lion.agent.model.dto.PromptTemplateRequest;
+import com.lion.agent.common.result.R;
+import com.lion.agent.pojo.dto.PromptTemplateRequest;
 import com.lion.agent.service.PromptTemplateService;
-import com.lion.agent.model.vo.PromptTemplateVo;
+import com.lion.agent.pojo.vo.PromptTemplateVo;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -31,27 +31,27 @@ public class PromptTemplateController {
 
     @Operation(summary = "提示词模板列表（数据库全部模板）")
     @GetMapping
-    public Result<List<PromptTemplateVo>> list() {
-        return Result.success(promptTemplateService.list());
+    public R<List<PromptTemplateVo>> list() {
+        return R.success(promptTemplateService.list());
     }
 
     @Operation(summary = "查看单个提示词模板（name 不含 .st 后缀，如 system-prompt）")
     @GetMapping("/{name}")
-    public Result<PromptTemplateVo> get(@PathVariable String name) {
-        return Result.success(promptTemplateService.getByName(name));
+    public R<PromptTemplateVo> get(@PathVariable String name) {
+        return R.success(promptTemplateService.getByName(name));
     }
 
     @Operation(summary = "将 classpath 文件内容全量同步到数据库（新增 + 覆盖）")
     @PostMapping("/refresh")
-    public Result<Void> refresh() {
+    public R<Void> refresh() {
         promptTemplateService.refreshFromFiles();
-        return Result.success();
+        return R.success();
     }
 
     @Operation(summary = "更新数据库中的提示词模板（保存后该模板以 DB 版本生效）")
     @PutMapping("/{name}")
-    public Result<PromptTemplateVo> update(@PathVariable String name,
-                                           @Valid @RequestBody PromptTemplateRequest request) {
-        return Result.success(promptTemplateService.update(name, request));
+    public R<PromptTemplateVo> update(@PathVariable String name,
+                                      @Valid @RequestBody PromptTemplateRequest request) {
+        return R.success(promptTemplateService.update(name, request));
     }
 }

@@ -1,10 +1,10 @@
 package com.lion.agent.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
-import com.lion.agent.common.PageResult;
-import com.lion.agent.common.Result;
+import com.lion.agent.common.result.PageResult;
+import com.lion.agent.common.result.R;
 import com.lion.agent.service.TokenUsageService;
-import com.lion.agent.model.vo.TokenUsageVO;
+import com.lion.agent.pojo.vo.TokenUsageVO;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -31,18 +31,18 @@ public class TokenUsageController {
      * 分页查询当前用户的用量记录
      */
     @GetMapping
-    public Result<PageResult<TokenUsageVO>> page(
+    public R<PageResult<TokenUsageVO>> page(
             @RequestParam(defaultValue = "1") @Min(1) int pageNum,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int pageSize,
             @RequestParam(required = false) String chatType) {
-        return Result.success(tokenUsageService.page(StpUtil.getLoginIdAsLong(), pageNum, pageSize, chatType));
+        return R.success(tokenUsageService.page(StpUtil.getLoginIdAsLong(), pageNum, pageSize, chatType));
     }
 
     /**
      * 汇总统计（总调用次数 / 总 token / 今日 / 平均耗时）
      */
     @GetMapping("/stats")
-    public Result<Map<String, Object>> stats() {
-        return Result.success(tokenUsageService.statistics(StpUtil.getLoginIdAsLong()));
+    public R<Map<String, Object>> stats() {
+        return R.success(tokenUsageService.statistics(StpUtil.getLoginIdAsLong()));
     }
 }

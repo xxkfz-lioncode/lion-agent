@@ -1,8 +1,8 @@
 package com.lion.agent.service;
 
-import com.lion.agent.common.PageResult;
-import com.lion.agent.model.dto.KnowledgeBaseRequest;
-import com.lion.agent.model.entity.KnowledgeBase;
+import com.lion.agent.common.result.PageResult;
+import com.lion.agent.pojo.dto.KnowledgeBaseRequest;
+import com.lion.agent.pojo.entity.KnowledgeBase;
 
 import java.util.List;
 

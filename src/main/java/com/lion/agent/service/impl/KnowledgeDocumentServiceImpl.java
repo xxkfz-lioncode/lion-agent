@@ -2,22 +2,22 @@ package com.lion.agent.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.lion.agent.common.PageResult;
+import com.lion.agent.common.result.PageResult;
 import com.lion.agent.common.async.RedisTaskQueue;
 import com.lion.agent.common.enums.DocumentStatus;
 import com.lion.agent.common.enums.VectorType;
-import com.lion.agent.common.util.LazyMilvusVectorStore;
-import com.lion.agent.model.dto.DocumentProcessTask;
-import com.lion.agent.model.entity.KnowledgeDocument;
-import com.lion.agent.exception.BusinessException;
+import com.lion.agent.common.utils.LazyMilvusVectorStoreUtils;
+import com.lion.agent.pojo.dto.DocumentProcessTask;
+import com.lion.agent.pojo.entity.KnowledgeDocument;
+import com.lion.agent.common.exception.BusinessException;
 import com.lion.agent.mapper.KnowledgeDocumentMapper;
 import com.lion.agent.service.KnowledgeBaseService;
 import com.lion.agent.service.KnowledgeDocumentService;
 import com.lion.agent.service.async.DocumentProcessConsumer;
 import com.lion.agent.service.retriever.InMemoryChunkStore;
-import com.lion.agent.splitter.DocumentSplitterStrategy;
-import com.lion.agent.splitter.SplitterStrategyRegistry;
-import com.lion.agent.splitter.SplitterType;
+import com.lion.agent.rag.splitter.DocumentSplitterStrategy;
+import com.lion.agent.rag.splitter.SplitterStrategyRegistry;
+import com.lion.agent.rag.splitter.SplitterType;
 import io.milvus.client.MilvusServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -68,7 +68,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private int embeddingDimension;
 
     /** 知识库向量存储持有器：懒加载建库 + 失败自愈（非 Spring Bean，避免顶掉检索侧默认 VectorStore） */
-    private volatile LazyMilvusVectorStore knowledgeStore;
+    private volatile LazyMilvusVectorStoreUtils knowledgeStore;
 
     @Value("${lion.upload.allowed-types:text/plain,text/markdown,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document}")
     private Set<String> allowedTypes;
@@ -215,16 +215,16 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
      * <p>为什么写入不直接用默认 VectorStore Bean：默认 Bean 由 Spring AI 自动配置管理，
      * 与检索侧共享同一 collection；而文档入库属于业务主链路——向量库不可用时应尽快失败
      * 并把文档留在可重试状态（FAIL → 重新入队），而不是静默跳过导致「DB 标记成功但向量缺失」。
-     * 这里刻意不注册成 Bean，而是通过 {@link LazyMilvusVectorStore} 懒加载持有独立实例
+     * 这里刻意不注册成 Bean，而是通过 {@link LazyMilvusVectorStoreUtils} 懒加载持有独立实例
      * （懒加载 + 建表 + 失败自愈收敛在持有器内），初始化失败会直接抛出，由调用方统一兜底。</p>
      */
     private MilvusVectorStore store() {
-        LazyMilvusVectorStore holder = knowledgeStore;
+        LazyMilvusVectorStoreUtils holder = knowledgeStore;
         if (holder == null) {
             synchronized (this) {
                 holder = knowledgeStore;
                 if (holder == null) {
-                    holder = new LazyMilvusVectorStore(milvusClient, embeddingModel,
+                    holder = new LazyMilvusVectorStoreUtils(milvusClient, embeddingModel,
                             collectionName, embeddingDimension, "知识库");
                     knowledgeStore = holder;
                 }

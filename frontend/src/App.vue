@@ -305,10 +305,19 @@ function goHome() {
 const isCollapsed = ref(false)
 const openedGroups = ref(['knowledge'])
 
+// 左侧菜单按功能分类，与首页快捷入口保持一致：
+// 对话中心 / 知识库 / Agent 能力（记忆、技能、提示词、MCP）/ 统计
 const menuTree = [
   { key: 'home', path: '/home', title: '首页', icon: '🏠' },
-  { key: 'chat', path: '/chat', title: '对话', icon: '💬' },
-  { key: 'multimodal', path: '/chat/multimodal', title: '多模态对话', icon: '🖼️' },
+  {
+    key: 'chat-center',
+    title: '对话中心',
+    icon: '💬',
+    children: [
+      { path: '/chat', title: '对话', icon: '💬' },
+      { path: '/chat/multimodal', title: '多模态对话', icon: '🖼️' }
+    ]
+  },
   {
     key: 'knowledge',
     title: '知识库',
@@ -318,9 +327,20 @@ const menuTree = [
       { path: '/knowledge/upload', title: '知识库上传', icon: '📤' }
     ]
   },
-  { key: 'memory', path: '/memory', title: '长期记忆', icon: '🧠' },
-  { key: 'skill', path: '/skill/manage', title: '技能管理', icon: '🧩' },
-  { key: 'usage', path: '/usage', title: '用量统计', icon: '📊' }
+  {
+    key: 'agent-ability',
+    title: 'Agent 能力',
+    icon: '🧠',
+    children: [
+      { path: '/memory', title: '长期记忆', icon: '🧠' },
+      { path: '/skill/manage', title: '技能管理', icon: '🧩' },
+      { path: '/prompt/manage', title: '提示词模板', icon: '📝' },
+      { path: '/mcp/manage', title: 'MCP 服务', icon: '🔌' }
+    ]
+  },
+  { key: 'usage', path: '/usage', title: '用量统计', icon: '📊' },
+  // 接口文档：站内页面内嵌后端 Swagger UI
+  { key: 'swagger', path: '/swagger', title: '接口文档', icon: '📘' }
 ]
 
 function toggleCollapse() {

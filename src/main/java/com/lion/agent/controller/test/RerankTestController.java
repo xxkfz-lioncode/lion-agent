@@ -1,7 +1,7 @@
 package com.lion.agent.controller.test;
 
-import com.lion.agent.common.Result;
-import com.lion.agent.utils.DashScopeRerankUtils;
+import com.lion.agent.common.result.R;
+import com.lion.agent.common.utils.DashScopeRerankUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +31,7 @@ public class RerankTestController {
     @Operation(summary = "Rerank 重排演示",
             description = "使用内置示例文档调用 DashScope Rerank API，返回按相关性排序后的片段（附降级标记）")
     @GetMapping("/rerank")
-    public Result<List<Map<String, String>>> rerank(
+    public R<List<Map<String, String>>> rerank(
             @RequestParam(defaultValue = "什么是文本排序模型") String query,
             @RequestParam(defaultValue = "5") int topN) {
 
@@ -50,6 +50,6 @@ public class RerankTestController {
                         "text", doc.getText(),
                         "id", doc.getId()))
                 .toList();
-        return Result.success(result);
+        return R.success(result);
     }
 }

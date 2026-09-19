@@ -1,7 +1,7 @@
 package com.lion.agent.controller.test;
 
-import com.lion.agent.common.Result;
-import com.lion.agent.utils.LangfuseIngestClient;
+import com.lion.agent.common.result.R;
+import com.lion.agent.common.utils.LangfuseIngestClientUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +31,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class LangfuseTestController {
 
-    private final LangfuseIngestClient langfuseIngestClient;
+    private final LangfuseIngestClientUtils langfuseIngestClient;
 
     /**
      * 完整链路演示：模拟一次问答并全量上报（Trace + Generation + Score）。
@@ -39,7 +39,7 @@ public class LangfuseTestController {
     @Operation(summary = "Langfuse 完整上报演示",
             description = "模拟一次问答链路：创建 Trace → 记录 LLM 调用（输入/输出/token 用量）→ 打满意度分，随后立即冲刷缓冲")
     @GetMapping("/demo")
-    public Result<Map<String, Object>> demo(
+    public R<Map<String, Object>> demo(
             @RequestParam(defaultValue = "什么是 RAG？") String question,
             @RequestParam(defaultValue = "4.5") double scoreValue) {
 
@@ -70,7 +70,7 @@ public class LangfuseTestController {
         result.put("traceId", traceId);
         result.put("generationId", generationId);
         result.put("hint", "请在 Langfuse 控制台 Project → Traces 搜索该 traceId 查看");
-        return Result.success(result);
+        return R.success(result);
     }
 
     /**
@@ -79,7 +79,7 @@ public class LangfuseTestController {
     @Operation(summary = "单独打分",
             description = "给指定 traceId 补一条 score-create 事件（若该 Trace 由 OTel 自动上报也能关联）")
     @GetMapping("/score")
-    public Result<Map<String, Object>> score(
+    public R<Map<String, Object>> score(
             @RequestParam String traceId,
             @RequestParam(defaultValue = "relevance") String name,
             @RequestParam(defaultValue = "5") double value,
@@ -93,7 +93,7 @@ public class LangfuseTestController {
         result.put("scoreName", name);
         result.put("scoreValue", value);
         result.put("hint", "请在 Langfuse 控制台查看该 Trace 的 Scores 标签页");
-        return Result.success(result);
+        return R.success(result);
     }
 
     /**
@@ -102,7 +102,7 @@ public class LangfuseTestController {
     @Operation(summary = "单独建 Trace",
             description = "上报一条 trace-create 事件，可验证 Trace 容器与 metadata 是否正确入库")
     @GetMapping("/trace")
-    public Result<Map<String, Object>> createTrace(
+    public R<Map<String, Object>> createTrace(
             @RequestParam(defaultValue = "custom-trace") String name,
             @RequestParam(required = false) String input) {
 
@@ -113,6 +113,6 @@ public class LangfuseTestController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("traceId", traceId);
         result.put("hint", "请在 Langfuse 控制台 Project → Traces 搜索该 traceId 查看");
-        return Result.success(result);
+        return R.success(result);
     }
 }

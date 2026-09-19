@@ -4,11 +4,15 @@ import cn.dev33.satoken.stp.StpUtil;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Sa-Token 权限认证配置
@@ -29,11 +33,17 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class SaTokenConfig implements WebMvcConfigurer {
 
-    /** 无需登录即可访问的白名单 */
-    private static final String[] EXCLUDE_PATHS = {
+    /** 基础白名单（与接口文档无关，始终放行） */
+    private static final String[] BASE_EXCLUDE_PATHS = {
             "/api/auth/login",
             "/api/auth/register",
-            // 接口文档（springdoc-openapi）
+            "/favicon.ico",
+            "/error",
+            "/mcp"
+    };
+
+    /** 接口文档（springdoc-openapi / Swagger UI）相关路径 */
+    private static final String[] SWAGGER_EXCLUDE_PATHS = {
             "/doc.html",
             "/webjars/**",
             "/v3/api-docs",
@@ -41,19 +51,36 @@ public class SaTokenConfig implements WebMvcConfigurer {
             "/swagger-ui",
             "/swagger-ui/**",
             "/swagger-ui.html",
-            "/swagger-ui/index.html",
-            "/favicon.ico",
-            "/error",
-            "/mcp"
+            "/swagger-ui/index.html"
     };
 
     /** 免登录包前缀：controller/test 包下的联调测试接口（本地调试用） */
     private static final String ANONYMOUS_PACKAGE_PREFIX = "com.lion.agent.controller.test";
 
+    /**
+     * 接口文档是否免登录。
+     * <p>
+     * 默认 {@code true}（本地开发方便调试）；生产环境在 application.yml 中设
+     * {@code lion.security.swagger-public: false}，Swagger/springdoc 相关路径
+     * 即要求登录。注意：前端 iframe 嵌入页不携带 Authorization 头，关闭后将
+     * 无法在页面内打开文档，属预期行为。
+     */
+    private final boolean swaggerPublic;
+
+    public SaTokenConfig(@Value("${lion.security.swagger-public:true}") boolean swaggerPublic) {
+        this.swaggerPublic = swaggerPublic;
+    }
+
 
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // 先组装白名单：基础路径始终放行；接口文档路径由 lion.security.swagger-public 控制
+        List<String> excludePaths = new ArrayList<>(List.of(BASE_EXCLUDE_PATHS));
+        if (swaggerPublic) {
+            excludePaths.addAll(List.of(SWAGGER_EXCLUDE_PATHS));
+        }
+
         registry.addInterceptor(new HandlerInterceptor() {
             @Override
             public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
@@ -73,6 +100,6 @@ public class SaTokenConfig implements WebMvcConfigurer {
         })
         // 拦截所有请求；白名单通过 excludePathPatterns 在 Spring 层面直接放行
         .addPathPatterns("/**")
-        .excludePathPatterns(EXCLUDE_PATHS);
+        .excludePathPatterns(excludePaths.toArray(new String[0]));
     }
 }

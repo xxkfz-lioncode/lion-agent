@@ -1,7 +1,7 @@
 package com.lion.agent.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.lion.agent.model.entity.Skill;
+import com.lion.agent.pojo.entity.Skill;
 
 /**
  * 自定义技能 Mapper
