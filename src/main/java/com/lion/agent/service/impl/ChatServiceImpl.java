@@ -20,6 +20,7 @@ import com.lion.agent.config.PromptConfig;
 import com.lion.agent.service.IntentRecognitionService;
 import com.lion.agent.service.KnowledgeRetrievalService;
 import com.lion.agent.service.MemoryService;
+import com.lion.agent.service.ModelConfigService;
 import com.lion.agent.service.ToolRegistryService;
 import com.lion.agent.pojo.vo.ChatResult;
 import com.lion.agent.pojo.vo.ChunkSource;
@@ -27,6 +28,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
@@ -76,6 +78,8 @@ public class ChatServiceImpl implements ChatService {
     private final IntentRecognitionService intentRecognitionService;
     /** 知识库检索服务（高级 RAG 流水线：改写/多路召回/RRF/Rerank/门控） */
     private final KnowledgeRetrievalService knowledgeRetrievalService;
+    /** 模型配置管理（对话时按类型取默认模型热切换，见模型管理页面） */
+    private final ModelConfigService modelConfigService;
     /** 上传文件根目录（相对工作目录），多模态图片保存于 {uploadPath}/multimodal/yyyy/MM/dd/ 下 */
     @Value("${lion.upload.path:upload/}")
     private String uploadPath;
@@ -404,6 +408,12 @@ public class ChatServiceImpl implements ChatService {
                             .param(AdvisorConstants.CHAT_TYPE_KEY, chatType))
                     // 工具按需注册：常驻（UserTools）+ 向量预筛（StarFortuneTools 等），见 ToolRegistryService
                     .tools(toolRegistryService.selectTools(message, userId));
+            // 模型热切换：模型管理页面设置的默认 chat 模型按次覆盖；表中无默认记录时不覆盖（沿用 yml 配置）
+            String chatModelName = modelConfigService.getDefaultModelName("chat");
+            if (chatModelName != null) {
+                // Spring AI 2.0：需传厂商专属 Options（通用 ChatOptions 会在 OpenAiChatModel 内部强转失败）
+                spec.options(OpenAiChatOptions.builder().model(chatModelName));
+            }
             // 同步调用：工具调用由 Spring AI 自动处理（执行工具后再递归调用模型），返回最终文本
             return spec.user(message).call().content();
         } catch (Exception e) {
@@ -422,7 +432,7 @@ public class ChatServiceImpl implements ChatService {
     private String callQwenMultimodal(String message, List<ImageRef> imageRefs, Long conversationId,String chatType) {
         log.info("开始请求LLM大模型（多模态，{} 张图片）......", imageRefs.size());
         try {
-            return multimodalChatClient.prompt()
+            var spec = multimodalChatClient.prompt()
                     .user(u -> {
                         u.text(message);
                         for (ImageRef ref : imageRefs) {
@@ -435,7 +445,13 @@ public class ChatServiceImpl implements ChatService {
                                 log.warn("忽略不支持的图片数据：{}", ref.data().getClass().getName());
                             }
                         }
-                    }).call().content();
+                    });
+            // 模型热切换：模型管理页面设置的默认 multimodal 模型按次覆盖；无默认记录时沿用 yml 配置
+            String multimodalModelName = modelConfigService.getDefaultModelName("multimodal");
+            if (multimodalModelName != null) {
+                spec.options(OpenAiChatOptions.builder().model(multimodalModelName));
+            }
+            return spec.call().content();
         } catch (Exception e) {
             log.error("调用千问大模型失败", e);
             throw new BusinessException("AI 服务调用失败，请检查 QWEN_API_KEY 配置或稍后重试");

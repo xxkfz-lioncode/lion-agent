@@ -22,21 +22,19 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * 用户长期记忆服务实现（Phase 1）
  *
  * <p>写入：{@link #extractAndStoreAsync} 在独立线程池 {@code memoryExecutor} 中异步执行——
- * LLM 抽取 → MySQL ai_memory 存原文 + Milvus lion_agent_memory 存向量副本。
- * 每个用户最多只保留一条画像（profile）：落库时不依赖向量相似度判断重复，
- * 直接按 userId 查询已有画像并强制合并（内容去重拼接、重要性取高、重建向量），
- * 不存在才新增。</p>
+ * LLM 抽取 → 与已有画像去重整合 → 整体覆盖写回 MySQL ai_memory，并重建 Milvus 向量副本。
+ * 每个用户最多保留一条画像（profile），历史遗留的多条记录随首次写入收敛清理。</p>
  *
  * <p>读取：{@link #search} 按 userId 过滤（多租户隔离），返回相似度达标（默认 0.55）的 Top-K 记忆，
  * 供 {@code LongTermMemoryAdvisor} 注入 prompt。</p>
@@ -45,6 +43,12 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class MemoryServiceImpl implements MemoryService {
+
+    /** 画像内容长度上限（ai_memory.content 为 VARCHAR，超限会被截断报错） */
+    private static final int MAX_PROFILE_LENGTH = 900;
+
+    /** importance 兜底值 */
+    private static final int DEFAULT_IMPORTANCE = 3;
 
     /** Milvus doc id 长度上限（<= 36） */
     private static final int MAX_DOC_ID_LENGTH = 36;
@@ -111,89 +115,92 @@ public class MemoryServiceImpl implements MemoryService {
         if (items.isEmpty()) {
             return;
         }
-        // 同一轮抽取出的多条事实/偏好合并为一条用户画像，避免数据库/向量库碎片化
-        MemoryItem profile = mergeItemsToProfile(items);
         try {
-            storeItem(userId, conversationId, profile);
-            log.info("[Memory] 用户画像落库完成 userId={} conversationId={} 合并 {} 条原始记忆", userId, conversationId, items.size());
+            storeProfile(userId, conversationId, items);
+            log.info("[Memory] 用户画像落库完成 userId={} conversationId={} 本轮抽取 {} 条",
+                    userId, conversationId, items.size());
         } catch (Exception e) {
             log.warn("[Memory] 用户画像落库失败 userId={} error={}", userId, e.getMessage());
         }
     }
 
     /**
-     * 单条记忆落库（不依赖向量相似度去重）：
-     * 直接按 userId 查询 MySQL 中该用户的画像（profile）记录——
-     * 已存在则强制合并为同一条（内容去重拼接、重要性取高、重建向量），
-     * 不存在则 MySQL 插入 + Milvus 写入。保证每个用户最多一条画像。
+     * 画像落库主流程（每个用户最多保留一条 PROFILE）：
+     * 加载已有画像 → 与本轮抽取条目去重整合 → 整体覆盖写回 → 重建向量副本。
      */
-    private void storeItem(Long userId, Long conversationId, MemoryItem item) {
-        // 查询该用户已有的全部画像记录（含历史遗留的多条，合并后收敛为一条）
-        List<AiMemory> existingProfiles = memoryMapper.selectList(new LambdaQueryWrapper<AiMemory>()
-                .eq(AiMemory::getUserId, userId)
-                .eq(AiMemory::getMemoryType, MemoryType.PROFILE.getValue())
-                .orderByAsc(AiMemory::getId));
+    private void storeProfile(Long userId, Long conversationId, List<MemoryItem> items) {
+        List<AiMemory> profiles = queryProfiles(userId);
+        AiMemory base = profiles.isEmpty() ? null : profiles.getFirst();
+        String existingContent = profiles.stream().map(AiMemory::getContent).reduce("", this::mergeContents);
 
-        if (!existingProfiles.isEmpty()) {
-            mergeProfiles(userId, conversationId, item, existingProfiles);
-            return;
-        }
+        MemoryItem profile = consolidate(base, existingContent, items);
+        AiMemory saved = base == null ? insertProfile(userId, conversationId, profile) : updateProfile(base, profile);
 
-        AiMemory memory = new AiMemory();
-        memory.setUserId(userId);
-        memory.setMemoryType(MemoryType.PROFILE.getValue());
-        memory.setContent(item.content());
-        memory.setImportance(item.importance());
-        memory.setSourceConversationId(conversationId);
-        memory.setCreatedAt(LocalDateTime.now());
-        memory.setUpdatedAt(LocalDateTime.now());
-        memoryMapper.insert(memory);
-
-        addDocument(userId, conversationId, memory.getId(), item);
-        log.info("[Memory] 新增用户画像 userId={} memoryId={} importance={}",
-                userId, memory.getId(), item.importance());
-    }
-
-    /**
-     * 合并用户已有画像：以最早一条为基底，将新内容与其余历史画像内容合并，
-     * 重要性取最高；多余的历史画像记录及向量一并清理，保证每用户仅一条画像。
-     */
-    private void mergeProfiles(Long userId, Long conversationId, MemoryItem item, List<AiMemory> existingProfiles) {
-        AiMemory base = existingProfiles.get(0);
-        String merged = base.getContent();
-        int maxImportance = base.getImportance() == null ? 0 : base.getImportance();
-        List<Long> redundantIds = new ArrayList<>();
-        for (int i = 1; i < existingProfiles.size(); i++) {
-            AiMemory extra = existingProfiles.get(i);
-            merged = mergeContents(merged, extra.getContent());
-            if (extra.getImportance() != null && extra.getImportance() > maxImportance) {
-                maxImportance = extra.getImportance();
-            }
-            redundantIds.add(extra.getId());
-        }
-        merged = mergeContents(merged, item.content());
-        if (item.importance() > maxImportance) {
-            maxImportance = item.importance();
-        }
-
-        base.setContent(merged);
-        base.setImportance(maxImportance);
-        base.setUpdatedAt(LocalDateTime.now());
-        memoryMapper.updateById(base);
-
-        // 清理多余的历史画像记录及其向量
+        // 清理历史遗留的多余画像行及其向量
+        List<Long> redundantIds = profiles.size() > 1
+                ? profiles.subList(1, profiles.size()).stream().map(AiMemory::getId).toList()
+                : List.of();
         for (Long id : redundantIds) {
             deleteVectorByMemoryId(userId, id);
         }
         if (!redundantIds.isEmpty()) {
-            memoryMapper.deleteBatchIds(redundantIds);
+            memoryMapper.deleteByIds(redundantIds);
+            log.info("[Memory] 清理多余画像 userId={} 条数={}", userId, redundantIds.size());
         }
 
-        // 重建主画像向量：先删旧 doc 再写入
-        deleteVectorByMemoryId(userId, base.getId());
-        addDocument(userId, conversationId, base.getId(), new MemoryItem(merged, maxImportance));
-        log.info("[Memory] 合并用户画像 userId={} memoryId={} 内容长度={} 重要性={}",
-                userId, base.getId(), merged.length(), maxImportance);
+        // 内容已变化，向量副本整体重建
+        deleteVectorByMemoryId(userId, saved.getId());
+        addDocument(userId, conversationId, saved.getId(), profile);
+        log.info("[Memory] 画像已保存 userId={} memoryId={} 内容长度={} 重要性={}",
+                userId, saved.getId(), profile.content().length(), profile.importance());
+    }
+
+    /** 查询用户已有画像（每个用户只应有一条，多条时为历史遗留数据） */
+    private List<AiMemory> queryProfiles(Long userId) {
+        return memoryMapper.selectList(new LambdaQueryWrapper<AiMemory>()
+                .eq(AiMemory::getUserId, userId)
+                .eq(AiMemory::getMemoryType, MemoryType.PROFILE.getValue())
+                .orderByAsc(AiMemory::getId));
+    }
+
+    /**
+     * 去重整合：优先交给 LLM 做语义合并（去重、矛盾以最新陈述为准，结果已包含需保留的旧记忆）；
+     * 整合失败或返回空时，回退为字符串级去重拼接。
+     */
+    private MemoryItem consolidate(AiMemory base, String existingContent, List<MemoryItem> items) {
+        List<MemoryItem> consolidated = memoryExtractor.merge(existingContent, items);
+        if (!consolidated.isEmpty()) {
+            return toProfile(consolidated);
+        }
+        log.warn("[Memory] 整合结果为空，回退字符串合并 userId={}", base == null ? null : base.getUserId());
+        MemoryItem incoming = toProfile(items);
+        return new MemoryItem(mergeContents(existingContent, incoming.content()),
+                Math.max(incoming.importance(), importanceOf(base)));
+    }
+
+    private AiMemory insertProfile(Long userId, Long conversationId, MemoryItem profile) {
+        AiMemory memory = new AiMemory();
+        memory.setUserId(userId);
+        memory.setMemoryType(MemoryType.PROFILE.getValue());
+        memory.setContent(profile.content());
+        memory.setImportance(profile.importance());
+        memory.setSourceConversationId(conversationId);
+        memory.setCreatedAt(LocalDateTime.now());
+        memory.setUpdatedAt(LocalDateTime.now());
+        memoryMapper.insert(memory);
+        return memory;
+    }
+
+    private AiMemory updateProfile(AiMemory base, MemoryItem profile) {
+        base.setContent(profile.content());
+        base.setImportance(profile.importance());
+        base.setUpdatedAt(LocalDateTime.now());
+        memoryMapper.updateById(base);
+        return base;
+    }
+
+    private int importanceOf(AiMemory profile) {
+        return profile == null || profile.getImportance() == null ? DEFAULT_IMPORTANCE : profile.getImportance();
     }
 
     /**
@@ -210,65 +217,40 @@ public class MemoryServiceImpl implements MemoryService {
     }
 
     /**
-     * 把同一轮抽取出的多条记忆合并为一条用户画像，避免数据库/向量库碎片化。
-     * 内容去重拼接，重要性取最高。
+     * 把多条记忆收敛为一条画像，避免数据库/向量库碎片化：去重后以「；」拼接，重要性取最高。
      */
-    private MemoryItem mergeItemsToProfile(List<MemoryItem> items) {
-        if (items.size() == 1) {
-            return new MemoryItem(items.get(0).content(), items.get(0).importance());
-        }
-        StringBuilder sb = new StringBuilder();
-        int maxImportance = 0;
-        for (MemoryItem item : items) {
-            if (StringUtils.hasText(item.content())) {
-                if (!sb.isEmpty()) {
-                    sb.append("；");
-                }
-                sb.append(item.content());
-            }
-            if (item.importance() > maxImportance) {
-                maxImportance = item.importance();
-            }
-        }
-        // 限制单条画像长度，避免超出 ai_memory.content VARCHAR(1024) 上限
-        String content = sb.toString();
-        if (content.length() > 900) {
-            content = content.substring(0, 900);
-        }
-        return new MemoryItem(content, Math.max(maxImportance, 3));
+    private MemoryItem toProfile(List<MemoryItem> items) {
+        String content = items.stream()
+                .map(MemoryItem::content)
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .collect(Collectors.joining("；"));
+        int importance = items.stream().mapToInt(MemoryItem::importance).max().orElse(DEFAULT_IMPORTANCE);
+        return new MemoryItem(clamp(content, MAX_PROFILE_LENGTH), Math.max(importance, DEFAULT_IMPORTANCE));
     }
 
     /**
-     * 合并已有画像与新画像内容，按"；"拆分后去重拼接，保留信息完整度。
-     * 合并后长度超过 1000 时截断，避免越界。
+     * 两段画像内容去重拼接：按「；」拆分后去重再拼回（保留顺序），超限截断。
      */
     private String mergeContents(String existingContent, String newContent) {
-        Set<String> segments = new LinkedHashSet<>();
-        if (StringUtils.hasText(existingContent)) {
-            for (String s : existingContent.split("[；;]")) {
-                if (StringUtils.hasText(s.trim())) {
-                    segments.add(s.trim());
+        List<String> segments = new ArrayList<>();
+        for (String source : Arrays.asList(existingContent, newContent)) {
+            if (!StringUtils.hasText(source)) {
+                continue;
+            }
+            for (String segment : source.split("[；;]")) {
+                String text = segment.trim();
+                if (StringUtils.hasText(text) && !segments.contains(text)) {
+                    segments.add(text);
                 }
             }
         }
-        if (StringUtils.hasText(newContent)) {
-            for (String s : newContent.split("[；;]")) {
-                if (StringUtils.hasText(s.trim())) {
-                    segments.add(s.trim());
-                }
-            }
-        }
-        StringBuilder sb = new StringBuilder();
-        for (String segment : segments) {
-            if (!sb.isEmpty()) {
-                sb.append("；");
-            }
-            sb.append(segment);
-            if (sb.length() > 1000) {
-                break;
-            }
-        }
-        return sb.toString();
+        return clamp(String.join("；", segments), MAX_PROFILE_LENGTH);
+    }
+
+    private String clamp(String text, int max) {
+        return text == null ? "" : (text.length() <= max ? text : text.substring(0, max));
     }
 
     /**

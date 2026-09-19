@@ -606,7 +606,8 @@ spring:
 
 ```
 每轮对话（用户消息 + AI 回复）
-  → MemoryExtractor 用「无 Advisor 的裸 ChatModel」抽取事实/偏好（JSON，容错解析）
+  → MemoryExtractor 用「无 Advisor 的干净 ChatClient」抽取事实/偏好（Spring AI 原生结构化输出）
+  → 与已有画像做 LLM 整合合并（语义去重、矛盾以最新为准；失败回退字符串去重），每用户仅一条画像
   → 重要性打分 1-5，落库 ai_memory（fact / preference）
   → embedding 写 Milvus lion_agent_memory（按 userId 隔离，检索阈值 0.55）
   → 后续对话经 Advisor 检索用户记忆注入 System Prompt，跨会话记住用户偏好

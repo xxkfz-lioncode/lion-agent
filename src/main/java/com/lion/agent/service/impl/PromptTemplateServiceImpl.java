@@ -49,6 +49,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         map.put("kb-rewrite.st", "知识库查询改写（单路召回）");
         map.put("kb-rewrite-multi.st", "知识库多路查询改写（多路召回）");
         map.put("memory-extract.st", "长期记忆抽取（从对话中提炼事实/偏好）");
+        map.put("memory-merge.st", "长期记忆整合合并（语义去重、矛盾以最新为准）");
         map.put("memory-inject.st", "长期记忆注入（把记忆拼进 SystemMessage）");
         map.put("memory-rewrite.st", "长期记忆查询改写");
         map.put("summary-compress.st", "会话摘要压缩");

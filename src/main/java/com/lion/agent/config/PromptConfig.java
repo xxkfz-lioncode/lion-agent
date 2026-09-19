@@ -23,7 +23,8 @@ import java.util.Map;
  * <p>模板清单（文件名 → 渲染变量）：</p>
  * <ul>
  *   <li>system-prompt.st —— 系统提示词（{agentName}）</li>
- *   <li>memory-extract.st —— 长期记忆抽取（{userContent}/{assistantContent}/{jsonExample}）</li>
+ *   <li>memory-extract.st —— 长期记忆抽取（{userContent}/{assistantContent}）</li>
+ *   <li>memory-merge.st —— 长期记忆整合合并（{existingContent}/{newItems}）</li>
  *   <li>memory-rewrite.st —— 长期记忆查询改写（{question}）</li>
  *   <li>memory-inject.st —— 长期记忆注入 SystemMessage（{items}）</li>
  *   <li>kb-answer.st —— 知识库回答（{context}/{question}）</li>
@@ -39,9 +40,6 @@ import java.util.Map;
 public class PromptConfig {
 
     private final PromptTemplateService promptTemplateService;
-
-    /** 记忆抽取 JSON 数组示例（含花括号，不能直接写进 .st 模板，否则会被 ST4 当作变量占位符解析），通过渲染变量 {jsonExample} 注入模板 */
-    private static final String JSON_EXAMPLE = "[{\"content\":\"用户预算是50万\",\"importance\":4}]";
 
     /** 渲染变量：Agent 角色名（可由 application.yml 的 lion.prompt.agent-name 覆盖） */
     @Value("${lion.prompt.agent-name:Lion Agent}")
@@ -60,8 +58,14 @@ public class PromptConfig {
     public String renderMemoryExtract(String userContent, String assistantContent) {
         return renderTemplate("memory-extract.st", Map.of(
                 "userContent", userContent,
-                "assistantContent", assistantContent == null ? "" : assistantContent,
-                "jsonExample", JSON_EXAMPLE));
+                "assistantContent", assistantContent == null ? "" : assistantContent));
+    }
+
+    /** 渲染长期记忆整合合并提示词（已有画像 + 本轮新抽取条目） */
+    public String renderMemoryMerge(String existingContent, String newItems) {
+        return renderTemplate("memory-merge.st", Map.of(
+                "existingContent", existingContent == null || existingContent.isBlank() ? "（无）" : existingContent,
+                "newItems", newItems));
     }
 
     /** 渲染长期记忆查询改写提示词 */

@@ -81,8 +81,19 @@
       title="从文件同步提示词模板"
       content="将 resources/prompts 目录下的模板文件同步到数据库（新增 + 覆盖）？页面中已保存的修改会被文件内容覆盖。"
       confirm-text="同步"
+      confirm-loading-text="同步中..."
+      :loading="refreshing"
       @confirm="doRefresh"
     />
+
+    <!-- 轻量消息提示 -->
+    <Teleport to="body">
+      <Transition name="toast-fade">
+        <div v-if="messageVisible" class="toast" :class="messageType" @click="closeMessage">
+          {{ messageText }}
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -100,24 +111,49 @@ const currentPrompt = ref({})
 const editContent = ref('')
 const confirmVisible = ref(false)
 
+const messageVisible = ref(false)
+const messageText = ref('')
+const messageType = ref('info')
+let messageTimer = null
+
 onMounted(loadList)
+
+function showMessage(text, type = 'info') {
+  messageText.value = text
+  messageType.value = type
+  messageVisible.value = true
+  if (messageTimer) clearTimeout(messageTimer)
+  messageTimer = setTimeout(() => {
+    messageVisible.value = false
+  }, 2500)
+}
+
+function closeMessage() {
+  messageVisible.value = false
+  if (messageTimer) clearTimeout(messageTimer)
+}
 
 async function loadList() {
   loading.value = true
   try {
     promptList.value = await listPromptTemplates()
+  } catch (e) {
+    showMessage('加载模板列表失败：' + (e.message || e), 'error')
   } finally {
     loading.value = false
   }
 }
 
 async function doRefresh() {
+  if (refreshing.value) return
   refreshing.value = true
   try {
     await refreshPromptTemplates()
     await loadList()
+    confirmVisible.value = false
+    showMessage(`同步完成，当前共 ${promptList.value.length} 个模板`, 'success')
   } catch (e) {
-    alert('同步失败：' + (e.message || e))
+    showMessage('同步失败：' + (e.message || e), 'error')
   } finally {
     refreshing.value = false
   }
@@ -142,8 +178,9 @@ async function save() {
       promptList.value[idx] = updated
     }
     closeDialog()
+    showMessage(`「${updated.name}」已保存，下一次对话即生效`, 'success')
   } catch (e) {
-    alert('保存失败：' + (e.message || e))
+    showMessage('保存失败：' + (e.message || e), 'error')
   } finally {
     saving.value = false
   }
@@ -442,5 +479,52 @@ async function save() {
 .btn-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 轻量消息提示 */
+.toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  background: #fff;
+  color: var(--text-main);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  max-width: calc(100vw - 48px);
+}
+
+.toast.success {
+  border-color: #bbe7cc;
+  background: #f0fbf4;
+  color: #1a7f4b;
+}
+
+.toast.error {
+  border-color: #f5c2c2;
+  background: #fef3f3;
+  color: #c0392b;
+}
+
+.toast.info {
+  border-color: #c9d2f5;
+  background: #f2f5ff;
+  color: #3b5bdb;
+}
+
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-8px);
 }
 </style>

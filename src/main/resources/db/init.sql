@@ -485,3 +485,38 @@ CREATE TABLE ai_mcp_server_tool (
     KEY idx_server_id (server_id)
 ) ENGINE = InnoDB COMMENT ='MCP 服务工具表';
 
+-- ---------------------------------------------------------------------
+-- 模型配置表（ai_model_config）
+-- 管理可切换的大模型列表；所有模型统一复用服务端配置的单个端点与密钥
+-- （spring.ai.openai.base-url / api-key），切换时只按次覆盖请求中的 model 名，
+-- 不新建客户端、无需重启服务。
+-- base_url / api_key 字段保留（历史数据兼容），但不再参与调用，已放开为可为空。
+-- 每个 model_type（chat/multimodal）至多一条 is_default=1；表中无默认记录时回退 yml 配置。
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS ai_model_config;
+CREATE TABLE ai_model_config (
+    id           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    display_name VARCHAR(64)  NOT NULL COMMENT '显示名（如 千问旗舰）',
+    model_name   VARCHAR(128) NOT NULL COMMENT '模型名（OpenAI 兼容接口的 model 参数），唯一',
+    model_type   VARCHAR(16)  NOT NULL DEFAULT 'chat' COMMENT '类型：chat-文本对话 / multimodal-多模态',
+    base_url     VARCHAR(512) DEFAULT NULL COMMENT 'OpenAI 兼容端点（字段保留暂不使用，统一用 yml 的 spring.ai.openai.base-url）',
+    api_key      VARCHAR(512) DEFAULT NULL COMMENT 'API Key（字段保留暂不使用，统一用 yml 的 spring.ai.openai.api-key）',
+    temperature  DOUBLE       DEFAULT NULL COMMENT '采样温度（NULL=沿用全局默认 0.1）',
+    enabled      TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否启用',
+    is_default   TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '是否为该类型默认模型',
+    remark       VARCHAR(512) DEFAULT NULL COMMENT '备注说明',
+    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_model_name (model_name),
+    KEY idx_model_type (model_type)
+) ENGINE = InnoDB COMMENT = '模型配置表';
+
+-- 默认数据：常用千问系模型（统一走 DashScope 端点，密钥由 yml/环境变量提供）
+INSERT INTO ai_model_config (display_name, model_name, model_type, temperature, enabled, is_default, remark) VALUES
+('千问旗舰', 'qwen3.8-max', 'chat', 0.1, 1, 1, '当前 yml 默认主力模型，能力最全'),
+('千问标准', 'qwen-plus', 'chat', 0.1, 1, 0, '均衡性能与成本'),
+('千问极速', 'qwen-turbo', 'chat', 0.1, 1, 0, '响应最快、成本最低'),
+('千问视觉旗舰', 'qwen-vl-max', 'multimodal', 0.1, 1, 1, '当前多模态默认模型（图片理解）'),
+('千问视觉标准', 'qwen3-vl-plus', 'multimodal', 0.1, 1, 0, '性价比更高的视觉模型');
+

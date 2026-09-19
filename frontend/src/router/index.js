@@ -11,6 +11,7 @@ import SkillManage from '../views/skill/ManageView.vue'
 import PromptManage from '../views/prompt/PromptManageView.vue'
 import McpManage from '../views/mcp/McpManageView.vue'
 import SwaggerView from '../views/SwaggerView.vue'
+import ModelConfigView from '../views/model/ModelConfigView.vue'
 
 const routes = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true, title: '登录' } },
@@ -24,6 +25,7 @@ const routes = [
   { path: '/skill/manage', name: 'skill-manage', component: SkillManage, meta: { title: '技能管理' } },
   { path: '/prompt/manage', name: 'prompt-manage', component: PromptManage, meta: { title: '提示词模板' } },
   { path: '/mcp/manage', name: 'mcp-manage', component: McpManage, meta: { title: 'MCP 服务管理' } },
+  { path: '/model/manage', name: 'model-manage', component: ModelConfigView, meta: { title: '模型配置管理' } },
   { path: '/swagger', name: 'swagger', component: SwaggerView, meta: { title: '接口文档' } },
   { path: '/usage', name: 'usage', component: TokenUsageView, meta: { title: '用量统计' } }
 ]

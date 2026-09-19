@@ -335,7 +335,8 @@ const menuTree = [
       { path: '/memory', title: '长期记忆', icon: '🧠' },
       { path: '/skill/manage', title: '技能管理', icon: '🧩' },
       { path: '/prompt/manage', title: '提示词模板', icon: '📝' },
-      { path: '/mcp/manage', title: 'MCP 服务', icon: '🔌' }
+      { path: '/mcp/manage', title: 'MCP 服务', icon: '🔌' },
+      { path: '/model/manage', title: '模型配置', icon: '🤖' }
     ]
   },
   { key: 'usage', path: '/usage', title: '用量统计', icon: '📊' },
