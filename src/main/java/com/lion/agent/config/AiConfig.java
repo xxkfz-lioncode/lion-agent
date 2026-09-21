@@ -48,8 +48,6 @@ public class AiConfig {
 
     /**
      * Advisor 调用链顺序（order 越小越靠外层：先处理请求、后处理响应）。
-     * <p>
-     * 链路结构固定，故统一写死为常量，不再由 application.yml 维护。
      *
      * <pre>
      *   最外层 │ SensitiveWordAdvisor      -200 │ 命中即短路：不调模型、不耗 token、不写会话记忆
@@ -227,7 +225,7 @@ public class AiConfig {
     public ChatMemory messageWindowChatMemory(JdbcChatMemoryRepository repository) {
        return MessageWindowChatMemory.builder()
                 .chatMemoryRepository(repository)
-                // 每个会话保留最近 20 条消息
+                // 每个会话各自最多保留 500 条消息
                 .maxMessages(500)
                 .build();
     }

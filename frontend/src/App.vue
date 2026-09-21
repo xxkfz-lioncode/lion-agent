@@ -315,7 +315,8 @@ const menuTree = [
     icon: '💬',
     children: [
       { path: '/chat', title: '对话', icon: '💬' },
-      { path: '/chat/multimodal', title: '多模态对话', icon: '🖼️' }
+      { path: '/chat/multimodal', title: '多模态对话', icon: '🖼️' },
+      { path: '/chat/records', title: '会话记录', icon: '📜' }
     ]
   },
   {
