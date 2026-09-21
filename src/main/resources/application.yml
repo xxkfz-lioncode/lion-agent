@@ -110,6 +110,16 @@ sa-token:
 
 # ==================== 业务自定义配置 ====================
 lion:
+  # 输入侧敏感词拦截：词库由「敏感词管理」页面维护（存 ai_sensitive_word 表），改词即时生效、无需重启
+  sensitive:
+    # 总开关；关闭后对话链路不再做敏感词检测（词库仍可维护）
+    enabled: true
+    # Advisor 顺序已固定为 -200（写在 AiConfig#SENSITIVE_WORD_ORDER）：比 Token 统计(-100)更外层，
+    # 命中即短路，不消耗 token、不写会话记忆
+    # 命中后返回给用户的拒绝话术
+    reject-message: '您的问题包含敏感内容，我无法回答。'
+    # 检测范围：user = 只检测本轮用户输入（默认，避免系统提示词/历史/知识库内容误杀）；all = 检测整个 prompt
+    check-scope: user
   # 基于 Redis 的异步任务队列（生产者-消费者）
   async:
     # 每个队列的消费线程数
@@ -195,17 +205,9 @@ lion:
     # 每次检索取 Top-N 条候选（取最高相似度一条）
     top-k: 1
 
-  # Advisor 调用链顺序（order 越小越靠外层：先处理请求、后处理响应），
-  # 可在不改代码的情况下单独调整每个 Advisor 的执行顺序
-  advisor:
-    # Token 用量统计：最外层（Integer.MIN_VALUE），先于其它 Advisor，拿到经过完整调用链后的最终响应
-    token-usage-order: -100
-    # 语义缓存：次外层，先于会话记忆；缓存命中短路，跳过记忆注入与模型调用
-    qa-cache-order: 10
-    # 长期记忆：介于语义缓存与会话摘要之间，先注入用户历史事实/偏好，再注入会话内摘要
-    long-term-memory-order: 200
-    # 会话记忆摘要：内层，在模型调用前注入历史消息
-    conversation-summary-order: 300
+  # Advisor 调用链顺序已固定写死在 AiConfig 常量中（链路结构稳定，无需外部调整）：
+  # SensitiveWord(-200) → TokenUsage(-100) → QaCache(10) → LongTermMemory(200) → ConversationSummary(300)
+  # 敏感词拦截器的开关/话术/检测范围仍由下方 lion.sensitive.* 维护（顺序已写死为 -200）
 
   # 系统提示词（模板集中维护在 PromptConfig，角色名由此处配置，渲染 {agentName} 变量）
   prompt:

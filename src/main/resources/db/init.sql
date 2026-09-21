@@ -520,3 +520,28 @@ INSERT INTO ai_model_config (display_name, model_name, model_type, temperature, 
 ('千问视觉旗舰', 'qwen-vl-max', 'multimodal', 0.1, 1, 1, '当前多模态默认模型（图片理解）'),
 ('千问视觉标准', 'qwen3-vl-plus', 'multimodal', 0.1, 1, 0, '性价比更高的视觉模型');
 
+-- ---------------------------------------------------------------------
+-- 敏感词表（ai_sensitive_word）
+-- 输入侧敏感词拦截的词库：由「敏感词管理」页面维护（/api/sensitive-word）。
+-- SensitiveWordAdvisor 在每次对话调用前按启用词表做包含匹配（忽略大小写），
+-- 命中即短路返回拒绝话术，不调用大模型；enabled=0 的词不参与匹配。
+-- word 唯一，避免重复维护；分类仅用于页面筛选与统计。
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS ai_sensitive_word;
+CREATE TABLE ai_sensitive_word (
+    id          BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+    word        VARCHAR(128)  NOT NULL COMMENT '敏感词（匹配时忽略大小写，做包含匹配）',
+    category    VARCHAR(32)   NOT NULL DEFAULT 'custom' COMMENT '分类：custom-自定义 / politics-政治 / porn-色情 / violence-暴力 / abuse-辱骂',
+    enabled     TINYINT(1)    NOT NULL DEFAULT 1 COMMENT '是否启用：1 启用 0 禁用',
+    remark      VARCHAR(256)  DEFAULT NULL COMMENT '备注说明',
+    created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_word (word),
+    KEY idx_enabled (enabled)
+) ENGINE = InnoDB COMMENT = '敏感词表';
+
+-- 默认数据：与代码中原硬编码词表对齐，页面可自行增删改
+INSERT INTO ai_sensitive_word (word, category, enabled, remark) VALUES
+('违禁词', 'custom', 1, '示例敏感词：命中后直接拒绝回答，可自行删除或修改');
+

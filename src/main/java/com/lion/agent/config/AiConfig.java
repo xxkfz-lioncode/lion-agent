@@ -3,8 +3,10 @@ package com.lion.agent.config;
 import com.lion.agent.advisor.ConversationSummaryAdvisor;
 import com.lion.agent.advisor.LongTermMemoryAdvisor;
 import com.lion.agent.advisor.QaCacheAdvisor;
+import com.lion.agent.advisor.SensitiveWordAdvisor;
 import com.lion.agent.advisor.TokenUsageAdvisor;
 import com.lion.agent.mapper.ChatMessageMapper;
+import com.lion.agent.service.SensitiveWordService;
 import com.lion.agent.mapper.ConversationSummaryMapper;
 import com.lion.agent.advisor.memory.ReadLimitChatMemory;
 import com.lion.agent.service.MemoryService;
@@ -13,6 +15,7 @@ import com.lion.agent.service.TokenUsageService;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
+import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.client.advisor.ToolCallingAdvisor;
 import org.springframework.ai.chat.client.advisor.toolsearch.ToolSearchToolCallingAdvisor;
 import org.springframework.ai.chat.client.advisor.toolsearch.autoconfigure.ToolSearchAdvisorProperties;
@@ -44,24 +47,49 @@ import java.util.List;
 public class AiConfig {
 
     /**
-     * 各 Advisor 的调用链顺序（order 越小越靠外层：先处理请求、后处理响应）。
-     * 由 application.yml 的 {@code lion.advisor.*} 配置维护，默认值与原硬编码一致：
-     * TokenUsageAdvisor（最外层） → QaCacheAdvisor（次外层） → ConversationSummaryAdvisor（内层）。
+     * Advisor 调用链顺序（order 越小越靠外层：先处理请求、后处理响应）。
+     * <p>
+     * 链路结构固定，故统一写死为常量，不再由 application.yml 维护。
+     *
+     * <pre>
+     *   最外层 │ SensitiveWordAdvisor      -200 │ 命中即短路：不调模型、不耗 token、不写会话记忆
+     *         │ TokenUsageAdvisor         -100 │ 拿到经完整链路后的最终响应并统计落库
+     *         │ SimpleLoggerAdvisor          0 │ 官方默认 order，打印该位置看到的请求/响应（DEBUG）
+     *         │ QaCacheAdvisor              10 │ 语义缓存命中即短路
+     *         │ LongTermMemoryAdvisor      200 │ 注入跨会话事实/偏好
+     *   最内层 │ ConversationSummaryAdvisor 300 │ 注入会话历史与摘要
+     *         ↓ 工具调用循环 / 模型调用
+     * </pre>
      */
-    @Value("${lion.advisor.token-usage-order:-100}")
-    private int tokenUsageOrder;
+    private static final int SENSITIVE_WORD_ORDER = -200;
 
-    @Value("${lion.advisor.qa-cache-order:10}")
-    private int qaCacheOrder;
+    private static final int TOKEN_USAGE_ORDER = -100;
 
-    @Value("${lion.advisor.conversation-summary-order:300}")
-    private int conversationSummaryOrder;
+    private static final int QA_CACHE_ORDER = 10;
 
-    @Value("${lion.advisor.long-term-memory-order:200}")
-    private int longTermMemoryOrder;
+    private static final int LONG_TERM_MEMORY_ORDER = 200;
+
+    private static final int CONVERSATION_SUMMARY_ORDER = 300;
 
     @Value("${lion.memory.inject-top-k:5}")
     private int memoryInjectTopK;
+
+    /**
+     * 输入侧敏感词拦截（词库由页面维护，存 ai_sensitive_word 表），改词即时生效、无需重启。
+     * 顺序固定为 {@link #SENSITIVE_WORD_ORDER}；开关、话术、检测范围仍可由配置调整。
+     */
+    @Value("${lion.sensitive.enabled:true}")
+    private boolean sensitiveEnabled;
+
+    @Value("${lion.sensitive.reject-message:您的问题包含敏感内容，我无法回答。}")
+    private String sensitiveRejectMessage;
+
+    /**
+     * 检测范围：user = 只检测本轮用户输入（默认，避免系统提示词/历史/知识库内容误杀）；
+     * all = 检测整个 prompt（与官方 SafeGuardAdvisor 行为一致）。
+     */
+    @Value("${lion.sensitive.check-scope:user}")
+    private String sensitiveCheckScope;
 
     /**
      * 自定义 Embedding 分批策略（DashScope 适配）。
@@ -92,7 +120,8 @@ public class AiConfig {
      * <p>
      * 与 {@link #chatClient(ChatClient.Builder, ChatMemory, QaCacheService, ChatMessageMapper,
      * ConversationSummaryMapper, TokenUsageService, MemoryService, ChatModel, PromptConfig) chatClient} 隔离：
-     * 不挂载 Token 统计/语义缓存/长期记忆/会话摘要等重 Advisor，仅保留日志顾问，链路保持简单。
+     * 不挂载语义缓存/长期记忆/会话摘要等重 Advisor；除日志与 Token 统计外，
+     * 额外挂载 {@link SensitiveWordAdvisor}（order -200，最外层短路，命中即不调用视觉模型）。
      * <p>
      * 模型：复用自动配置的 OpenAI 兼容 ChatModel（DashScope 端点与主模型一致），
      * 仅通过 defaultOptions 切换独立的多模态模型名（默认 qwen-vl-max，可用
@@ -102,15 +131,23 @@ public class AiConfig {
     public ChatClient multimodalChatClient(ChatModel chatModel,
                                            PromptConfig promptConfig,
                                            TokenUsageService tokenUsageService,
+                                           SensitiveWordService sensitiveWordService,
                                            @Value("${lion.multimodal.model:qwen-vl-max}") String model,
                                            @Value("${lion.multimodal.temperature:0.1}") double temperature) {
         OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder().model(model).temperature(temperature);
 
+        // 与主链路一致的敏感词拦截器：order 默认 -200，最外层短路，命中则不调用视觉模型、不消耗 token
+        List<Advisor> advisors = new ArrayList<>();
+        if (sensitiveEnabled) {
+            advisors.add(new SensitiveWordAdvisor(sensitiveWordService, sensitiveRejectMessage,
+                    sensitiveCheckScope, SENSITIVE_WORD_ORDER));
+        }
+        advisors.add(new SimpleLoggerAdvisor());
+        advisors.add(new TokenUsageAdvisor(TOKEN_USAGE_ORDER, tokenUsageService));
+
         return ChatClient.builder(chatModel)
                 .defaultOptions(builder)
-                .defaultAdvisors(
-                        new SimpleLoggerAdvisor(),
-                        new TokenUsageAdvisor(tokenUsageOrder, tokenUsageService))
+                .defaultAdvisors(advisors.toArray(new Advisor[0]))
                 .defaultSystem(promptConfig.renderSystemPrompt())
                 .build();
     }
@@ -119,25 +156,31 @@ public class AiConfig {
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder, ChatMemory chatMemory,
                                  QaCacheService qaCacheService, ChatMessageMapper chatMessageMapper,
                                  ConversationSummaryMapper summaryMapper, TokenUsageService tokenUsageService,
-                                 MemoryService memoryService, ChatModel chatModel, PromptConfig promptConfig) {
+                                 MemoryService memoryService, ChatModel chatModel, PromptConfig promptConfig,
+                                 SensitiveWordService sensitiveWordService) {
 
-        ChatClient.Builder builder = chatClientBuilder
-                .defaultAdvisors(
-                        // 全局 Token 用量统计（同步 + 流式），置于调用链最外层，拿到最终响应并落库 ai_token_usage
-                        new TokenUsageAdvisor(tokenUsageOrder, tokenUsageService),
-                        // 语义缓存：相似问题命中直接复用历史回答（短路跳过模型调用），回答完成后自动回写缓存
-                        new QaCacheAdvisor(qaCacheService, qaCacheOrder),
-                        // 长期记忆：跨会话注入用户历史事实/偏好（Milvus 检索，失败自动降级跳过）
-                        new LongTermMemoryAdvisor(memoryService, chatModel, promptConfig, memoryInjectTopK, longTermMemoryOrder),
-                        // 会话记忆：历史从 chat_message 表读取 + 增量压缩摘要（持久化到 chat_conversation_summary 表）
-                        new ConversationSummaryAdvisor(chatClientBuilder, chatMessageMapper, summaryMapper,
-                                100, 5, conversationSummaryOrder, promptConfig),
-                        // 日志顾问,order：0
-                        new SimpleLoggerAdvisor(),
-                        // 会话记忆：调用前自动从 ChatMemory（JDBC 窗口记忆）读取该会话历史注入上下文，
-                        // 调用完成后把本轮问答追加写入存储，实现多轮对话记忆
-                        MessageChatMemoryAdvisor.builder(new ReadLimitChatMemory(chatMemory, 30)).build()
-                );
+        // Advisor 列表（顺序即 order 排序依据，DefaultChatClient 会统一按 getOrder() 重排）
+        List<Advisor> advisors = new ArrayList<>();
+        // 全局 Token 用量统计（同步 + 流式），置于调用链最外层，拿到最终响应并落库 ai_token_usage
+        advisors.add(new TokenUsageAdvisor(TOKEN_USAGE_ORDER, tokenUsageService));
+        // 语义缓存：相似问题命中直接复用历史回答（短路跳过模型调用），回答完成后自动回写缓存
+        advisors.add(new QaCacheAdvisor(qaCacheService, QA_CACHE_ORDER));
+        // 长期记忆：跨会话注入用户历史事实/偏好（Milvus 检索，失败自动降级跳过）
+        advisors.add(new LongTermMemoryAdvisor(memoryService, chatModel, promptConfig, memoryInjectTopK, LONG_TERM_MEMORY_ORDER));
+        // 会话记忆：历史从 chat_message 表读取 + 增量压缩摘要（持久化到 chat_conversation_summary 表）
+        advisors.add(new ConversationSummaryAdvisor(chatClientBuilder, chatMessageMapper, summaryMapper,
+                100, 5, CONVERSATION_SUMMARY_ORDER, promptConfig));
+        // 日志顾问,order：0
+        advisors.add(new SimpleLoggerAdvisor());
+        // 输入侧敏感词拦截器,替换官方 SafeGuardAdvisor
+        if (sensitiveEnabled) {
+            advisors.add(new SensitiveWordAdvisor(sensitiveWordService, sensitiveRejectMessage, sensitiveCheckScope, SENSITIVE_WORD_ORDER));
+        }
+        // 会话记忆：调用前自动从 ChatMemory（JDBC 窗口记忆）读取该会话历史注入上下文，
+        // 调用完成后把本轮问答追加写入存储，实现多轮对话记忆
+        advisors.add(MessageChatMemoryAdvisor.builder(new ReadLimitChatMemory(chatMemory, 30)).build());
+
+        ChatClient.Builder builder = chatClientBuilder.defaultAdvisors(advisors.toArray(new Advisor[0]));
         return builder.build();
     }
 

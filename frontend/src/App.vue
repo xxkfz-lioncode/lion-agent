@@ -339,6 +339,14 @@ const menuTree = [
       { path: '/model/manage', title: '模型配置', icon: '🤖' }
     ]
   },
+  {
+    key: 'system',
+    title: '系统管理',
+    icon: '🛡️',
+    children: [
+      { path: '/sensitive/manage', title: '敏感词管理', icon: '🛡️' }
+    ]
+  },
   { key: 'usage', path: '/usage', title: '用量统计', icon: '📊' },
   // 接口文档：站内页面内嵌后端 Swagger UI
   { key: 'swagger', path: '/swagger', title: '接口文档', icon: '📘' }
