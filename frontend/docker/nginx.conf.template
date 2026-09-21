@@ -1,0 +1,65 @@
+# Nginx 配置模板：容器启动时由官方镜像 envsubst 把 ${BACKEND_UPSTREAM} 渲染成真实后端地址
+# 例如 BACKEND_UPSTREAM=backend:8080（docker compose 内的服务名）
+
+# Docker 内嵌 DNS，允许后端容器晚于 Nginx 启动（用变量做上游必须配 resolver）
+resolver 127.0.0.11 valid=10s ipv6=off;
+
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # 与后端 multipart max-request-size（20MB）保持一致
+    client_max_body_size 20m;
+
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json application/xml image/svg+xml;
+    gzip_min_length 1024;
+
+    # 上游后端（容器启动期由环境变量渲染）
+    set $backend_upstream "${BACKEND_UPSTREAM}";
+
+    # 接口代理：前端统一走同源 /api
+    location /api/ {
+        proxy_pass http://$backend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+    }
+
+    # SSE 流式对话：必须关闭缓冲，否则前端收不到逐字输出
+    location /api/chat/stream {
+        proxy_pass http://$backend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding on;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    # 静态资源缓存
+    location /assets/ {
+        expires 7d;
+        add_header Cache-Control "public";
+        try_files $uri =404;
+    }
+
+    # SPA 路由回退
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

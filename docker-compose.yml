@@ -2,8 +2,15 @@
 # Lion Agent 基础设施编排（MySQL / Redis / Milvus 向量库）
 #
 # 用法：
-#   docker compose up -d          # 启动全部中间件
+#   docker compose up -d          # 启动全部中间件（backend / frontend 属于 app profile，不会启动）
 #   docker compose up -d mysql redis milvus-standalone   # 只启动需要的
+#
+#   应用镜像（后端 Dockerfile 在根目录，前端在 frontend/）：
+#   docker build -t lion-agent-backend:1.0.0 .
+#   docker build -t lion-agent-frontend:1.0.0 ./frontend
+#   docker compose --profile app up -d --build   # 中间件 + 应用一起构建启动
+#   docker compose --profile app ps              # 查看状态
+#
 #   docker compose ps             # 查看状态
 #   docker compose down           # 停止（保留数据卷）
 #   docker compose down -v        # 停止并删除数据卷（慎用，会清数据）
@@ -148,9 +155,68 @@ services:
       milvus-standalone:
         condition: service_healthy
 
+  # ---------------- 后端应用（Spring Boot，镜像由根目录 Dockerfile 构建） ----------------
+  # 属于 app profile：docker compose --profile app up -d --build
+  backend:
+    profiles: ["app"]
+    image: lion-agent-backend:1.0.0
+    container_name: lion-backend
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      TZ: Asia/Shanghai
+      SPRING_PROFILES_ACTIVE: prod
+      # 容器内通过服务名访问中间件（不要写 localhost）
+      DB_URL: jdbc:mysql://mysql:3306/lion_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${DB_USERNAME:-xxkfz}
+      DB_PASSWORD: ${DB_PASSWORD:-xxkfz}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-123456}
+      MILVUS_HOST: milvus-standalone
+      MILVUS_PORT: 19530
+      LION_UPLOAD_PATH: /app/upload/
+      # 千问密钥等从项目根目录 .env 注入（未设置时为空，启动会缺 key）
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+      QWEN_BASE_URL: ${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      QWEN_MODEL: ${QWEN_MODEL:-qwen3.8-max}
+      QWEN_EMBEDDING_MODEL: ${QWEN_EMBEDDING_MODEL:-text-embedding-v3}
+    ports:
+      - "8080:8080"
+    volumes:
+      - upload-data:/app/upload
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus-standalone:
+        condition: service_healthy
+
+  # ---------------- 前端应用（Nginx 托管 dist，反代 /api 到 backend） ----------------
+  frontend:
+    profiles: ["app"]
+    image: lion-agent-frontend:1.0.0
+    container_name: lion-frontend
+    restart: unless-stopped
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      TZ: Asia/Shanghai
+      # 后端上游地址（容器内服务名）；单独部署时改成实际主机:端口
+      BACKEND_UPSTREAM: backend:8080
+    ports:
+      # 宿主 80 -> 容器 80；若宿主 80 被占用改成 "8081:80"
+      - "80:80"
+    depends_on:
+      - backend
+
 volumes:
   mysql-data:
   redis-data:
   etcd-data:
   minio-data:
   milvus-data:
+  upload-data:
