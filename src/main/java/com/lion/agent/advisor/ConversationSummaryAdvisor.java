@@ -6,6 +6,7 @@ import com.lion.agent.pojo.entity.ChatMessage;
 import com.lion.agent.pojo.entity.ConversationSummary;
 import com.lion.agent.mapper.ChatMessageMapper;
 import com.lion.agent.mapper.ConversationSummaryMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,10 +42,8 @@ import static com.lion.agent.common.constants.AdvisorConstants.CONVERSATION_ID_K
  * <p>
  * 注意：{@code summaryChatClient} 必须是不含本 Advisor 的干净 ChatClient，否则摘要请求会递归触发自身。
  */
+@Slf4j
 public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
-
-    private static final Logger log = LoggerFactory.getLogger(ConversationSummaryAdvisor.class);
-
     private final ChatClient summaryChatClient;
     private final ChatMessageMapper chatMessageMapper;
     private final ConversationSummaryMapper summaryMapper;

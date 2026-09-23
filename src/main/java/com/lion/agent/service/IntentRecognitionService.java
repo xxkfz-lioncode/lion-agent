@@ -70,7 +70,7 @@ public class IntentRecognitionService {
         String text = resp.trim().toLowerCase();
         ChatIntent intent = text.contains(KNOWLEDGE_MARK) ? ChatIntent.KNOWLEDGE : ChatIntent.GENERAL;
         log.info("[Intent] 用户输入「{}」识别意图为：{}", truncate(question, 30), intent);
-        return intent;
+        return ChatIntent.GENERAL;
     }
 
     // ==================== 工具方法 ====================

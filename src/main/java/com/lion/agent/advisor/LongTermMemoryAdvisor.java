@@ -3,6 +3,7 @@ package com.lion.agent.advisor;
 import com.lion.agent.common.constants.AdvisorConstants;
 import com.lion.agent.config.PromptConfig;
 import com.lion.agent.service.MemoryService;
+import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +18,7 @@ import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
@@ -27,18 +29,31 @@ import java.util.List;
 /**
  * 用户长期记忆 Advisor（Spring AI 2.0，跨会话记忆）
  * <p>
- * 职责：每次模型调用前，从 context 取 {@code USER_ID_KEY}（用户 ID），
- * 用当前用户消息在 Milvus 检索该用户的长期记忆（事实/偏好），命中则作为
- * SystemMessage 注入 prompt（放在系统提示词之后、会话摘要之前），实现"新会话也能记得老用户"。
+ * 以 {@code chain.nextCall(...)} / {@code chain.nextStream(...)} 为分界线，本 Advisor 承担两件事：
+ * <ol>
+ *   <li><b>请求阶段（分界线之前）</b>：取 context 的 {@code USER_ID_KEY} 与原始提问，
+ *       在 Milvus 检索该用户的长期记忆（事实/偏好），命中则作为 SystemMessage 注入 prompt
+ *       （放在系统提示词之后、会话摘要之前），实现"新会话也能记得老用户"。</li>
+ *   <li><b>响应阶段（分界线之后）</b>：拿到本轮「用户原话 + AI 回复」提交异步抽取，
+ *       由 {@link MemoryService} 落库画像（原来散落在 ChatServiceImpl 的两处调用已收敛到这里）。</li>
+ * </ol>
  * <p>
- * 顺序：order 可配置，建议位于 QaCacheAdvisor 之外、ConversationSummaryAdvisor 之内
- * （如 200），检索失败仅告警，绝不阻断主调用链。
+ * 抽取的三个前置约束（缺一不可，否则会误抽）：
+ * <ul>
+ *   <li>userId 非空 —— 摘要压缩等内部调用不带 user_id，必须跳过；</li>
+ *   <li>用 {@code RAW_USER_MESSAGE_KEY} 传入的用户原话 —— 知识库链路送入模型的是渲染后的
+ *       KB prompt（含检索片段），拿它抽取会把知识库内容写进用户画像；</li>
+ *   <li>本 Advisor 的 order 必须小于工具 Advisor（见 AiConfig，当前 MIN+220）——
+ *       否则会被圈进工具循环，每一轮工具调用都抽一次。</li>
+ * </ul>
+ * <p>
+ * 注意：本 Advisor 位于敏感词、语义缓存之内，二者短路时本 Advisor 不执行，
+ * 因此「拒答」「缓存命中」不会触发抽取（语义上更合理，也省一次抽取开销）。
+ * 检索与抽取失败均仅告警，绝不阻断主调用链。
  * 提示词模板（查询改写 / 记忆注入）由 {@link PromptConfig} 统一维护。
  */
+@Slf4j
 public class LongTermMemoryAdvisor implements CallAdvisor, StreamAdvisor {
-
-    private static final Logger log = LoggerFactory.getLogger(LongTermMemoryAdvisor.class);
-
     private final MemoryService memoryService;
     private final ChatModel chatModel;
     private final PromptConfig promptConfig;
@@ -68,23 +83,68 @@ public class LongTermMemoryAdvisor implements CallAdvisor, StreamAdvisor {
     @NotNull
     @Override
     public ChatClientResponse adviseCall(@NotNull ChatClientRequest advisedRequest, CallAdvisorChain chain) {
-        ChatClientRequest updated = injectLongTermMemory(advisedRequest);
-        return chain.nextCall(updated);
+        MemoryContext ctx = prepare(advisedRequest);
+        ChatClientRequest updated = injectLongTermMemory(advisedRequest, ctx);
+
+        // ===== 分界线：以上请求阶段（注入记忆），以下响应阶段（抽取记忆）=====
+        ChatClientResponse response = chain.nextCall(updated);
+        extractAsync(ctx, textOf(response));
+        return response;
     }
 
     @NotNull
     @Override
     public Flux<ChatClientResponse> adviseStream(@NotNull ChatClientRequest advisedRequest, StreamAdvisorChain chain) {
-        ChatClientRequest updated = injectLongTermMemory(advisedRequest);
-        return chain.nextStream(updated);
+        MemoryContext ctx = prepare(advisedRequest);
+        ChatClientRequest updated = injectLongTermMemory(advisedRequest, ctx);
+        if (!ctx.extractable()) {
+            return chain.nextStream(updated);
+        }
+
+        //
+        StringBuilder acc = new StringBuilder();
+        return chain.nextStream(updated)
+                .doOnNext(r -> acc.append(textOf(r)))
+                .doOnComplete(() -> extractAsync(ctx, acc.toString()))
+                .doOnError(e -> log.warn("[Memory] 流式链路异常，跳过本轮记忆抽取 error={}", e.getMessage()));
+    }
+
+    /**
+     * 本轮上下文：用户 ID、会话 ID、用户原话
+     */
+    private record MemoryContext(Long userId, Long conversationId, String rawQuery) {
+
+        /** 是否具备抽取条件：userId 与用户原话缺一不可 */
+        boolean extractable() {
+            return userId != null && StringUtils.hasText(rawQuery);
+        }
+    }
+
+    private MemoryContext prepare(ChatClientRequest request) {
+        return new MemoryContext(resolveUserId(request), resolveConversationId(request), resolveRawQuery(request));
+    }
+
+    /**
+     * 响应阶段：提交异步抽取（@Async memoryExecutor，提交即返回，不阻塞主链路）
+     */
+    private void extractAsync(MemoryContext ctx, String assistantContent) {
+        if (!ctx.extractable() || !StringUtils.hasText(assistantContent)) {
+            return;
+        }
+        try {
+            memoryService.extractAndStoreAsync(ctx.userId(), ctx.conversationId(), ctx.rawQuery(), assistantContent);
+            log.debug("[Memory] 已提交本轮记忆抽取 userId={} conversationId={}", ctx.userId(), ctx.conversationId());
+        } catch (Exception e) {
+            log.warn("[Memory] 记忆抽取提交失败 userId={} error={}", ctx.userId(), e.getMessage());
+        }
     }
 
     /**
      * 检索并注入用户长期记忆（SystemMessage 插到第一个用户消息之前）
      */
-    private ChatClientRequest injectLongTermMemory(ChatClientRequest request) {
-        Long userId = resolveUserId(request);
-        String rawQuery = extractUserQuery(request);
+    private ChatClientRequest injectLongTermMemory(ChatClientRequest request, MemoryContext ctx) {
+        Long userId = ctx.userId();
+        String rawQuery = ctx.rawQuery();
         if (userId == null || !StringUtils.hasText(rawQuery)) {
             return request;
         }
@@ -124,7 +184,26 @@ public class LongTermMemoryAdvisor implements CallAdvisor, StreamAdvisor {
     }
 
     private Long resolveUserId(ChatClientRequest request) {
-        Object value = request.context().get(AdvisorConstants.USER_ID_KEY);
+        return toLong(request.context().get(AdvisorConstants.USER_ID_KEY));
+    }
+
+    private Long resolveConversationId(ChatClientRequest request) {
+        return toLong(request.context().get(AdvisorConstants.CONVERSATION_ID_KEY));
+    }
+
+    /**
+     * 取用户原话：优先用业务层显式传入的 {@code RAW_USER_MESSAGE_KEY}，
+     * 缺失时降级取最后一条 USER 消息（普通对话二者一致）。
+     */
+    private String resolveRawQuery(ChatClientRequest request) {
+        Object raw = request.context().get(AdvisorConstants.RAW_USER_MESSAGE_KEY);
+        if (raw != null && StringUtils.hasText(raw.toString())) {
+            return raw.toString();
+        }
+        return extractUserQuery(request);
+    }
+
+    private Long toLong(Object value) {
         if (value == null) {
             return null;
         }
@@ -133,6 +212,20 @@ public class LongTermMemoryAdvisor implements CallAdvisor, StreamAdvisor {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /**
+     * 取本轮助手回复文本（流式场景由调用方累加各分片）
+     */
+    private String textOf(ChatClientResponse response) {
+        if (response == null || response.chatResponse() == null) {
+            return "";
+        }
+        Generation generation = response.chatResponse().getResult();
+        if (generation == null || generation.getOutput() == null || generation.getOutput().getText() == null) {
+            return "";
+        }
+        return generation.getOutput().getText();
     }
 
     private String extractUserQuery(ChatClientRequest request) {

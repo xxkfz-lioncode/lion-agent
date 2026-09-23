@@ -27,6 +27,14 @@ public final class AdvisorConstants {
     public static final String CONVERSATION_ID_KEY = "chat_memory_conversation_id";
 
     /**
+     * 上下文 Key：本轮用户的原始提问
+     * <p>知识库/多轮等链路送入模型的 user message 可能是渲染后的提示词（含检索片段、历史摘要），
+     * 不能用于长期记忆抽取。业务层发起调用时必须通过 {@code .advisors(spec -> spec.param(...))}
+     * 注入未经加工的用户原话，供抽取链路使用。</p>
+     */
+    public static final String RAW_USER_MESSAGE_KEY = "raw_user_message";
+
+    /**
      * 上下文 Key：会话类型
      * <p>取值：{@code chat}-常规对话、{@code kb}-知识库问答。
      * 业务层发起调用时通过 {@code .advisors(spec -> spec.param(...))} 注入，

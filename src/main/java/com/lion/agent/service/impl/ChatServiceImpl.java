@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lion.agent.common.result.PageResult;
 import com.lion.agent.common.constants.AdvisorConstants;
+import com.lion.agent.common.utils.SseEmitterUtils;
 import com.lion.agent.common.enums.ChatIntent;
 import com.lion.agent.common.enums.ChatType;
 import com.lion.agent.pojo.dto.ChatRequest;
@@ -19,7 +20,6 @@ import com.lion.agent.service.ChatService;
 import com.lion.agent.config.PromptConfig;
 import com.lion.agent.service.IntentRecognitionService;
 import com.lion.agent.service.KnowledgeRetrievalService;
-import com.lion.agent.service.MemoryService;
 import com.lion.agent.service.ModelConfigService;
 import com.lion.agent.service.ToolRegistryService;
 import com.lion.agent.pojo.vo.ChatResult;
@@ -51,7 +51,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -72,8 +71,7 @@ public class ChatServiceImpl implements ChatService {
     private final ToolRegistryService toolRegistryService;
     /** 系统提示词统一配置管理（模板与角色名集中维护，见 PromptConfig） */
     private final PromptConfig promptConfig;
-    /** 长期记忆服务（对话完成后异步抽取用户事实/偏好落库） */
-    private final MemoryService memoryService;
+    // 长期记忆抽取已收敛到 LongTermMemoryAdvisor 的响应阶段，本类不再直接调用 MemoryService
     /** 意图识别服务（统一入口路由前置：一般对话 / 知识库问答） */
     private final IntentRecognitionService intentRecognitionService;
     /** 知识库检索服务（高级 RAG 流水线：改写/多路召回/RRF/Rerank/门控） */
@@ -91,68 +89,25 @@ public class ChatServiceImpl implements ChatService {
         long userId = StpUtil.getLoginIdAsLong();
 
         // 1. 确定会话（为空则自动创建新会话）
-        Long conversationId = request.getConversationId();
-        if (conversationId == null) {
-            conversationId = createConversation(userId, request.getMessage());
-        } else {
-            checkConversationOwner(conversationId, userId);
-        }
+        Long conversationId = resolveConversation(userId, request.getConversationId(), request.getMessage());
 
-        // 2. 保存用户消息
-        ChatMessage userMessage = new ChatMessage();
-        userMessage.setConversationId(conversationId);
-        userMessage.setRole("user");
-        userMessage.setContent(request.getMessage());
-        userMessage.setCreatedAt(LocalDateTime.now());
-        chatMessageMapper.insert(userMessage);
+        // 2. 生成回复（意图路由 → 知识库链路 / 一般对话链路）
+        ChatReply answer = generateReply(userId, request, conversationId);
 
+        // 3. 用户消息 + AI 回复一次性落库（单条 multi-values SQL）
+        MessagePair messages = saveMessages(conversationId, request.getMessage(), answer.content());
 
-        // 3. 意图路由：先识别意图（一般对话 / 知识库问答），再调用对应链路
-        ChatIntent intent = intentRecognitionService.classify(userId, request.getMessage(), request.getKnowledgeId());
+        // 4. 刷新会话（更新时间 + 首轮标题，单条 SQL）
+        refreshConversation(conversationId);
 
-        String reply;
-        List<ChunkSource> referencedChunks = null;
-        if (intent == ChatIntent.KNOWLEDGE) {
-            // 知识库链路：高级 RAG 检索（改写/多路召回/RRF/Rerank/门控）
-            KnowledgeRetrievalService.RetrievalResult result =
-                    knowledgeRetrievalService.retrieve(userId, request.getMessage(), request.getKnowledgeId());
-            if (!result.qualified()) {
-                // 门控拦截：资料不足以从知识库回答，降级为一般对话由主模型兜底
-                log.info("[Chat] 知识库检索未命中，降级为一般对话：{}", result.reason());
-                reply = callQwen(request.getMessage(), conversationId, ChatType.CHAT.getValue());
-                referencedChunks = List.of();
-            } else {
-                // 检索通过：kb-answer 模板渲染（上下文 + 问题），chatType=kb
-                String prompt = promptConfig.renderKbAnswer(result.context(), request.getMessage());
-                reply = callQwen(prompt, conversationId, ChatType.KB.getValue());
-                referencedChunks = result.chunks();
-            }
-        } else {
-            // 一般对话：原链路（带记忆/工具/缓存等全局 Advisor）
-            reply = callQwen(request.getMessage(), conversationId, ChatType.CHAT.getValue());
-        }
-
-
-        // 4. 保存 AI 回复
-        ChatMessage assistantMessage = new ChatMessage();
-        assistantMessage.setConversationId(conversationId);
-        assistantMessage.setRole("assistant");
-        assistantMessage.setContent(reply);
-        assistantMessage.setCreatedAt(LocalDateTime.now());
-        chatMessageMapper.insert(assistantMessage);
-
-        // 5. 更新会话标题（首轮对话时用第一条消息作为标题）
-        updateTitleIfNeeded(conversationId);
-
-        // 6. 异步抽取并落库长期记忆（走 memoryExecutor 线程池，不阻塞响应；失败仅告警）
-        memoryService.extractAndStoreAsync(userId, conversationId, request.getMessage(), reply);
+        // 5. 长期记忆抽取已收敛到 LongTermMemoryAdvisor 的响应阶段（敏感词/缓存短路时不抽），此处不再调用
 
         return ChatResult.builder()
                 .conversationId(conversationId)
-                .userMessageId(userMessage.getId())
-                .assistantMessageId(assistantMessage.getId())
-                .reply(reply)
-                .referencedChunks(referencedChunks)
+                .userMessageId(messages.user().getId())
+                .assistantMessageId(messages.assistant().getId())
+                .reply(answer.content())
+                .referencedChunks(answer.chunks())
                 .build();
     }
 
@@ -163,126 +118,74 @@ public class ChatServiceImpl implements ChatService {
         long userId = StpUtil.getLoginIdAsLong();
 
         // 1. 确定会话（为空则自动创建新会话）
-        if (conversationId == null) {
-            conversationId = createConversation(userId, message);
-        } else {
-            checkConversationOwner(conversationId, userId);
-        }
+        conversationId = resolveConversation(userId, conversationId, message);
 
         // 2. 解析图片：上传文件保存副本（供历史回显）；远程 URL 直接引用
         List<ImageRef> imageRefs = resolveImages(images, imageUrls);
 
-        // 3. 保存用户消息（文本 + 图片引用，便于历史回显）
-        ChatMessage userMessage = new ChatMessage();
-        userMessage.setConversationId(conversationId);
-        userMessage.setRole("user");
-        userMessage.setContent(buildUserContent(message, imageRefs));
-        userMessage.setCreatedAt(LocalDateTime.now());
-        chatMessageMapper.insert(userMessage);
-
-        // 4. 调用多模态大模型（图片 + 文本，携带会话记忆）
+        // 3. 调用多模态大模型（图片 + 文本）
         String reply = callQwenMultimodal(message, imageRefs, conversationId, ChatType.CHAT.getValue());
 
-        // 5. 保存 AI 回复
-        ChatMessage assistantMessage = new ChatMessage();
-        assistantMessage.setConversationId(conversationId);
-        assistantMessage.setRole("assistant");
-        assistantMessage.setContent(reply);
-        assistantMessage.setCreatedAt(LocalDateTime.now());
-        chatMessageMapper.insert(assistantMessage);
+        // 4. 用户消息（文本 + 图片引用）+ AI 回复一次性落库
+        MessagePair messages = saveMessages(conversationId, buildUserContent(message, imageRefs), reply);
 
-        // 6. 更新会话标题
-        updateTitleIfNeeded(conversationId);
-
+        // 5. 刷新会话（更新时间 + 首轮标题）
+        refreshConversation(conversationId);
 
         return ChatResult.builder()
                 .conversationId(conversationId)
-                .userMessageId(userMessage.getId())
-                .assistantMessageId(assistantMessage.getId())
+                .userMessageId(messages.user().getId())
+                .assistantMessageId(messages.assistant().getId())
                 .reply(reply)
                 .build();
     }
 
+    /**
+     * 对话流式接口（SSE）
+     *
+     * <p>注意：当前仍是「伪流式」——底层 {@code callQwen} 为同步调用，拿到完整回复后一次性推送。
+     * 改造为真流式（{@code .stream()} 逐 token 推送）需要同时调整 Token 统计、语义缓存回写等
+     * Advisor 的流式分支，属于独立改造项；此处先把推送与落库流程收敛清晰。
+     *
+     * <p>流程：建会话 → 推 start（前端拿会话 ID）→ 生成回复 → 消息批量落库 → 推 message/done → 关闭。
+     * 任一步失败都通过 {@code error} 事件告知前端并以 completeWithError 收尾，不留悬挂连接。
+     */
     @Override
     public SseEmitter stream(ChatRequest request) {
         long userId = StpUtil.getLoginIdAsLong();
 
         // 1. 确定会话（为空则自动创建新会话）
-        Long conversationId = request.getConversationId();
-        if (conversationId == null) {
-            conversationId = createConversation(userId, request.getMessage());
-        } else {
-            checkConversationOwner(conversationId, userId);
-        }
+        Long conversationId = resolveConversation(userId, request.getConversationId(), request.getMessage());
 
-        // 2. 保存用户消息
-        ChatMessage userMessage = new ChatMessage();
-        userMessage.setConversationId(conversationId);
-        userMessage.setRole("user");
-        userMessage.setContent(request.getMessage());
-        userMessage.setCreatedAt(LocalDateTime.now());
-        chatMessageMapper.insert(userMessage);
-
-        // 供 lambda 使用（lambda 中要求 effectively final）
-        Long finalConversationId = conversationId;
-
-        // 3. 创建 SSE 发射器（0L 表示不自动超时）
+        // 2. 创建 SSE 发射器（0L 表示不自动超时）
         SseEmitter emitter = new SseEmitter(0L);
 
-        try {
-            // 先推送会话信息，便于前端拿到新会话 ID
-            emitter.send(SseEmitter.event()
-                    .name("start")
-                    .data(Map.of("conversationId", conversationId)));
-        } catch (IOException e) {
-            log.error("SSE 推送会话信息失败", e);
-            emitter.completeWithError(e);
+        // 3. 先推送会话信息，便于前端拿到新会话 ID（推送失败说明连接已不可用，直接返回）
+        if (!SseEmitterUtils.sendStart(emitter, conversationId)) {
             return emitter;
         }
 
-        // 意图路由 + 同步调用千问（含工具调用，工具由 ToolRegistryService 按需筛选）；
-        // 语义缓存命中时由全局 QaCacheAdvisor 短路，直接返回历史回答
-        String reply;
-        List<ChunkSource> referencedChunks = null;
+        // 4. 生成回复（意图路由 → 知识库链路 / 一般对话链路）
+        ChatReply answer;
         try {
-            ChatIntent intent = intentRecognitionService.classify(userId, request.getMessage(), request.getKnowledgeId());
-            if (intent == ChatIntent.KNOWLEDGE) {
-                KnowledgeRetrievalService.RetrievalResult result =
-                        knowledgeRetrievalService.retrieve(userId, request.getMessage(), request.getKnowledgeId());
-                if (!result.qualified()) {
-                    log.info("[Chat] 知识库检索未命中，降级为一般对话：{}", result.reason());
-                    reply = callQwen(request.getMessage(), finalConversationId, ChatType.CHAT.getValue());
-                    referencedChunks = List.of();
-                } else {
-                    String prompt = promptConfig.renderKbAnswer(result.context(), request.getMessage());
-                    reply = callQwen(prompt, finalConversationId, ChatType.KB.getValue());
-                    referencedChunks = result.chunks();
-                }
-            } else {
-                reply = callQwen(request.getMessage(), finalConversationId, ChatType.CHAT.getValue());
-            }
+            answer = generateReply(userId, request, conversationId);
         } catch (Exception e) {
-            log.error("调用千问大模型失败", e);
-            throw new BusinessException("AI 服务调用失败，请稍后重试");
+            log.error("[Chat] 生成回复失败 conversationId={}", conversationId, e);
+            // 失败也要把用户消息落库，避免前端刷新后这条提问凭空消失
+            saveMessages(conversationId, request.getMessage(), null);
+            refreshConversation(conversationId);
+            SseEmitterUtils.error(emitter, "AI 服务调用失败，请稍后重试");
+            return emitter;
         }
 
-        try {
-            // 保存 AI 回复（语义缓存回写已由 QaCacheAdvisor 在调用链中完成）
-            saveAssistantMessage(finalConversationId, reply);
-            // 更新会话标题（首轮用第一条用户消息）
-            updateTitleIfNeeded(finalConversationId);
-            // 异步抽取并落库长期记忆（不阻塞响应；失败仅告警）
-            memoryService.extractAndStoreAsync(userId, finalConversationId, request.getMessage(), reply);
-            // 一次性推送完整回复 + done，并关闭连接，前端恢复输入
-            emitter.send(SseEmitter.event().name("message").data(Map.of("content", reply)));
-            emitter.send(SseEmitter.event().name("done").data(Map.of(
-                    "reply", reply,
-                    "referencedChunks", referencedChunks == null ? List.of() : referencedChunks)));
-            emitter.complete();
-        } catch (Exception e) {
-            log.error("SSE 完成处理失败", e);
-            emitter.completeWithError(e);
-        }
+        // 5. 用户消息 + AI 回复一次性落库（单条 multi-values SQL）
+        saveMessages(conversationId, request.getMessage(), answer.content());
+        refreshConversation(conversationId);
+
+        // 6. 推送完整回复 + done，并关闭连接，前端恢复输入
+        SseEmitterUtils.sendMessage(emitter, answer.content());
+        SseEmitterUtils.sendDone(emitter, answer.content(), answer.chunks());
+        SseEmitterUtils.complete(emitter);
 
         return emitter;
     }
@@ -374,26 +277,106 @@ public class ChatServiceImpl implements ChatService {
 
     // ==================== 私有方法 ====================
 
+    /** 一轮对话的模型输出：回复文本 + 知识库引用来源（一般对话时为 null） */
+    private record ChatReply(String content, List<ChunkSource> chunks) {
+    }
+
+    /** 一轮对话落库的两条消息（failure 场景下 assistant 可能为 null） */
+    private record MessagePair(ChatMessage user, ChatMessage assistant) {
+    }
+
     /**
-     * 保存一条 AI 回复消息
+     * 确定会话：为空则创建新会话，否则校验归属后复用
      */
-    private void saveAssistantMessage(Long conversationId, String content) {
-        ChatMessage assistantMessage = new ChatMessage();
-        assistantMessage.setConversationId(conversationId);
-        assistantMessage.setRole("assistant");
-        assistantMessage.setContent(content);
-        assistantMessage.setCreatedAt(LocalDateTime.now());
-        chatMessageMapper.insert(assistantMessage);
+    private Long resolveConversation(Long userId, Long conversationId, String firstMessage) {
+        if (conversationId == null) {
+            return createConversation(userId, firstMessage);
+        }
+        checkConversationOwner(conversationId, userId);
+        return conversationId;
+    }
+
+    /**
+     * 生成回复：意图路由 →（知识库链路：高级 RAG 检索 + 门控降级）/ 一般对话链路。
+     * send 与 stream 共用，避免路由逻辑在两处各写一遍、改一处漏一处。
+     */
+    private ChatReply generateReply(Long userId, ChatRequest request, Long conversationId) {
+        ChatIntent intent = intentRecognitionService.classify(userId, request.getMessage(), request.getKnowledgeId());
+        if (intent == ChatIntent.GENERAL) {
+            // 一般对话：原链路（带记忆/工具/缓存等全局 Advisor）
+            return new ChatReply(callQwen(request.getMessage(), conversationId, ChatType.CHAT.getValue(),
+                    request.getMessage()), null);
+        }
+        // 知识库链路：高级 RAG 检索（改写/多路召回/RRF/Rerank/门控）
+        KnowledgeRetrievalService.RetrievalResult result =
+                knowledgeRetrievalService.retrieve(userId, request.getMessage(), request.getKnowledgeId());
+        if (!result.qualified()) {
+            // 门控拦截：资料不足以从知识库回答，降级为一般对话由主模型兜底
+            log.info("[Chat] 知识库检索未命中，降级为一般对话：{}", result.reason());
+            return new ChatReply(callQwen(request.getMessage(), conversationId, ChatType.CHAT.getValue(),
+                    request.getMessage()), List.of());
+        }
+        // 检索通过：kb-answer 模板渲染（上下文 + 问题），chatType=kb
+        String prompt = promptConfig.renderKbAnswer(result.context(), request.getMessage());
+        return new ChatReply(callQwen(prompt, conversationId, ChatType.KB.getValue(), request.getMessage()),
+                result.chunks());
+    }
+
+    /**
+     * 一次性保存「用户消息 + AI 回复」：单条 multi-values SQL，比两次 insert 少一次往返。
+     *
+     * @param assistantContent 为 null 时只保存用户消息（模型调用失败时的兜底落库）
+     */
+    private MessagePair saveMessages(Long conversationId, String userContent, String assistantContent) {
+        LocalDateTime now = LocalDateTime.now();
+        ChatMessage user = newMessage(conversationId, "user", userContent, now);
+        ChatMessage assistant = assistantContent == null ? null
+                : newMessage(conversationId, "assistant", assistantContent, now);
+        List<ChatMessage> batch = assistant == null ? List.of(user) : List.of(user, assistant);
+        try {
+            chatMessageMapper.insertBatch(batch);
+            if (user.getId() == null || (assistant != null && assistant.getId() == null)) {
+                // 主键未回填只影响本次返回的消息 ID，消息本身已落库，不阻断主流程
+                log.warn("[Chat] 批量插入主键回填缺失 conversationId={}", conversationId);
+            }
+        } catch (Exception e) {
+            // 批量失败才降级逐条：此时批量未成功，不会造成重复插入
+            log.warn("[Chat] 消息批量插入失败，降级为逐条插入 error={}", e.getMessage());
+            batch.forEach(chatMessageMapper::insert);
+        }
+        return new MessagePair(user, assistant);
+    }
+
+    private ChatMessage newMessage(Long conversationId, String role, String content, LocalDateTime now) {
+        ChatMessage message = new ChatMessage();
+        message.setConversationId(conversationId);
+        message.setRole(role);
+        message.setContent(content);
+        message.setCreatedAt(now);
+        return message;
+    }
+
+    /**
+     * 刷新会话：更新时间必刷（会话列表按此倒序），标题仅在仍是默认值时用首条用户消息覆盖。
+     * 单条 SQL 完成，失败仅告警不影响对话结果。
+     */
+    private void refreshConversation(Long conversationId) {
+        try {
+            conversationMapper.touchAndRefreshTitle(conversationId);
+        } catch (Exception e) {
+            log.warn("[Chat] 会话刷新失败 conversationId={} error={}", conversationId, e.getMessage());
+        }
     }
 
     /**
      * 同步调用千问大模型（通过 Spring AI ChatClient，纯文本）
      *
-     * @param message        用户消息
+     * @param message        送入模型的用户消息（知识库链路为渲染后的 KB prompt）
      * @param conversationId 会话 ID，用于按会话保存/加载多轮记忆
      * @param chatType       会话类型（chat-一般对话 / kb-知识库问答），供 TokenUsageAdvisor 落库区分
+     * @param rawUserMessage 未加工的用户原话，供 LongTermMemoryAdvisor 抽取长期记忆
      */
-    private String callQwen(String message, Long conversationId, String chatType) {
+    private String callQwen(String message, Long conversationId, String chatType, String rawUserMessage) {
         log.info("开始请求LLM大模型（文本）......");
         long userId = StpUtil.getLoginIdAsLong();
         try {
@@ -401,11 +384,13 @@ public class ChatServiceImpl implements ChatService {
             String systemPrompt = promptConfig.renderSystemPrompt();
             ChatClient.ChatClientRequestSpec spec = chatClient.prompt()
                     .system(systemPrompt)
-                    // 注入会话 ID / 用户 ID 到 Advisor 上下文（必须放在同一个 advisors 调用里，避免被覆盖）
+                    // 注入会话 ID / 用户 ID / 原始提问到 Advisor 上下文（必须放在同一个 advisors 调用里，避免被覆盖）
+                    // rawUserMessage：知识库链路的 message 是渲染后的 KB prompt，抽取长期记忆必须用未加工的用户原话
                     .advisors(a -> a
                             .param(ChatMemory.CONVERSATION_ID, conversationId)
                             .param(AdvisorConstants.USER_ID_KEY, userId)
-                            .param(AdvisorConstants.CHAT_TYPE_KEY, chatType))
+                            .param(AdvisorConstants.CHAT_TYPE_KEY, chatType)
+                            .param(AdvisorConstants.RAW_USER_MESSAGE_KEY, rawUserMessage))
                     // 工具按需注册：常驻（UserTools）+ 向量预筛（StarFortuneTools 等），见 ToolRegistryService
                     .tools(toolRegistryService.selectTools(message, userId));
             // 模型热切换：模型管理页面设置的默认 chat 模型按次覆盖；表中无默认记录时不覆盖（沿用 yml 配置）
@@ -628,31 +613,4 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
-    /**
-     * 当会话标题仍为默认"新对话"时，用最新用户消息更新为标题
-     */
-    private void updateTitleIfNeeded(Long conversationId) {
-        Conversation conversation = conversationMapper.selectById(conversationId);
-        if (conversation == null || !StringUtils.hasText(conversation.getTitle())
-                || "新对话".equals(conversation.getTitle())) {
-            ChatMessage firstUserMessage = chatMessageMapper.selectOne(
-                    Wrappers.<ChatMessage>lambdaQuery()
-                            .eq(ChatMessage::getConversationId, conversationId)
-                            .eq(ChatMessage::getRole, "user")
-                            .orderByAsc(ChatMessage::getId)
-                            .last("LIMIT 1"));
-            if (firstUserMessage != null) {
-                String title = firstUserMessage.getContent();
-                if (title != null && title.length() > 20) {
-                    title = title.substring(0, 20);
-                }
-                conversation.setTitle(title);
-                conversation.setUpdatedAt(LocalDateTime.now());
-                conversationMapper.updateById(conversation);
-            }
-        } else {
-            conversation.setUpdatedAt(LocalDateTime.now());
-            conversationMapper.updateById(conversation);
-        }
-    }
 }

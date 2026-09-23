@@ -112,8 +112,6 @@ sa-token:
 lion:
   # 输入侧敏感词拦截：词库由「敏感词管理」页面维护（存 ai_sensitive_word 表），改词即时生效、无需重启
   sensitive:
-    # 总开关；关闭后对话链路不再做敏感词检测（词库仍可维护）
-    enabled: true
     # Advisor 顺序已固定为 -200（写在 AiConfig#SENSITIVE_WORD_ORDER）：比 Token 统计(-100)更外层，
     # 命中即短路，不消耗 token、不写会话记忆
     # 命中后返回给用户的拒绝话术
@@ -208,6 +206,13 @@ lion:
   # Advisor 调用链顺序已固定写死在 AiConfig 常量中（链路结构稳定，无需外部调整）：
   # SensitiveWord(-200) → TokenUsage(-100) → QaCache(10) → LongTermMemory(200) → ConversationSummary(300)
   # 敏感词拦截器的开关/话术/检测范围仍由下方 lion.sensitive.* 维护（顺序已写死为 -200）
+
+  # 对话链路日志（ChatLoggerAdvisor，自定义替代官方 SimpleLoggerAdvisor）：
+  # 按「请求 / 响应」两块结构化打印，一眼看清送进模型的 prompt 与最终回复
+  advisor:
+    logger:
+      # 单条消息正文最多打印的字符数（系统提示词、知识库上下文动辄上千字，超出截断并标注总字数）
+      max-content-length: 300
 
   # 系统提示词（模板集中维护在 PromptConfig，角色名由此处配置，渲染 {agentName} 变量）
   prompt:
