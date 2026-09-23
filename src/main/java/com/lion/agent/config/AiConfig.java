@@ -23,11 +23,15 @@ import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.tool.toolsearch.eviction.CompositeEvictionStrategy;
+import org.springframework.ai.tool.toolsearch.eviction.LruEvictionStrategy;
+import org.springframework.ai.tool.toolsearch.eviction.TtlEvictionStrategy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.ai.document.Document;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -264,6 +268,16 @@ public class AiConfig {
         ToolSearchToolCallingAdvisor.Builder<?> builder = ToolSearchToolCallingAdvisor.builder()
                 .toolIndex(toolIndex)
                 .toolCallingManager(toolCallingManager)
+                // 索引淘汰策略（关键）：每个会话的工具索引都会写进向量库，不淘汰就只增不减。
+                // 触发时机：会话被访问时回调 onAccess()，返回"该清理的会话 id"，
+                //          顾问随后执行 clearIndex(sessionId) → 真正删除向量库里这批数据。
+                // 下面两个条件满足任意一个即清理（Composite = 或的关系）：
+                .evictionStrategy(new CompositeEvictionStrategy(
+                        // ① 过期清理：某个会话连续 2 小时没人再问，就把它那批工具索引删掉
+                        new TtlEvictionStrategy(Duration.ofHours(2)),
+                        // ② 容量兜底：同时最多保留 200 个会话的索引，
+                        //    超了就删最久没用的那个，防止高并发下向量库被撑爆
+                        new LruEvictionStrategy(200)))
                 .advisorOrder(TOOL_CALLING_ORDER);
         // max-results 走 yml 配置（spring.ai.chat.client.tool-search-advisor.max-results），未配置则为 null 不设置
         if (properties.getMaxResults() != null) {
