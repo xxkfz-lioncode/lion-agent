@@ -341,6 +341,15 @@ const menuTree = [
     ]
   },
   {
+    key: 'dify',
+    title: 'Dify 平台',
+    icon: '🧩',
+    children: [
+      { path: '/dify/apps', title: '应用市场', icon: '🧩' },
+      { path: '/dify/dataset', title: 'Dify 知识库', icon: '📚' }
+    ]
+  },
+  {
     key: 'system',
     title: '系统管理',
     icon: '🛡️',

@@ -326,6 +326,9 @@ MILVUS_PORT=19530
 | `LION_MULTIMODAL_MODEL` | 可选：多模态模型（默认 `qwen-vl-max`） |
 | `LION_ALAPI_TOKEN` | ALAPI Token（星座运势等第三方接口，可选） |
 | `MILVUS_HOST` / `MILVUS_PORT` / `MILVUS_DATABASE` / `MILVUS_COLLECTION` | Milvus 连接与 collection |
+| `DIFY_SERVER_EMAIL` / `DIFY_SERVER_PASSWORD` | Dify 控制台账号密码，用于调用 Server API 换令牌（应用列表/详情等） |
+| `DIFY_DATASET_API_KEY` | Dify 知识库 API Key（`dataset-xxx`）；留空则自动走 Server API 获取，但列表接口返回脱敏值，建议填真实 Key |
+| `DIFY_URL` | 可选：Dify 服务地址（默认 `http://127.0.0.1`） |
 | `LANGFUSE_OTLP_ENDPOINT` / `LANGFUSE_OTLP_AUTH` | Langfuse OTLP 端点与 Basic Auth（`base64(pk:sk)`），链路追踪 |
 | `LANGFUSE_BASE_URL` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | Langfuse 原生摄取（对话评分/自定义事件补报）公钥私钥，可选 |
 | `LION_UPLOAD_PATH` | 文件上传目录（默认 `upload/`） |

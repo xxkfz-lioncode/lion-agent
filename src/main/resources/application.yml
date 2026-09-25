@@ -387,3 +387,24 @@ resilience4j:
       slowTask: # @TimeLimiter 演示实例（TimeLimiterTools.runSlowTask）
         timeout-duration: 3s          # 超过 3 秒未完成即判定超时，触发降级
         cancel-running-future: true   # 超时后取消底层任务，避免线程泄漏
+
+dify:
+  # Dify 服务地址（只要协议+IP+端口，不要带路径，也不要带尾斜杠）
+  # 非敏感项，保留默认值；如需覆盖可用 DIFY_URL 环境变量
+  url: ${DIFY_URL:http://127.0.0.1}
+  server:
+    # 控制台账号邮箱：用于调用 Server API（应用列表、画布、应用详情等 console 接口）
+    # 流程是「拿邮箱+密码去 /console/api/login 换令牌」，而不是 personal access token
+    # 敏感项：从环境变量 / .env 的 DIFY_SERVER_EMAIL 注入
+    email: ${DIFY_SERVER_EMAIL:}
+    # 控制台账号密码（敏感项：DIFY_SERVER_PASSWORD）
+    password: ${DIFY_SERVER_PASSWORD:}
+  dataset:
+    # 知识库 API Key：调用 Dataset API（/v1/datasets 等）的鉴权凭证，格式 dataset-xxx
+    # 获取方式：Dify 控制台 → 知识库 → 右上角「API」→「API 密钥」（只能在新建时复制一次）
+    # 敏感项：从环境变量 / .env 的 DIFY_DATASET_API_KEY 注入
+    # 留空会自动走 Server API 获取；但 Dify 的密钥列表接口返回脱敏值，建议务必填真实 Key
+    api-key: ${DIFY_DATASET_API_KEY:}
+  client-config:
+    # 是否打印 SDK 的请求日志（含请求头与响应），排错时打开，生产环境建议关闭
+    logging: true

@@ -204,6 +204,12 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+       <!--https://guoshiqiufeng.github.io/dify-spring-boot-starter/guide/introduction.html-->
+        <dependency>
+            <groupId>io.github.guoshiqiufeng.dify</groupId>
+            <artifactId>dify-spring-boot4-starter</artifactId>
+            <version>2.3.3</version>
+        </dependency>
     </dependencies>
 
     <build>

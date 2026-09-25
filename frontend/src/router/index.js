@@ -14,6 +14,10 @@ import McpManage from '../views/mcp/McpManageView.vue'
 import SwaggerView from '../views/SwaggerView.vue'
 import ModelConfigView from '../views/model/ModelConfigView.vue'
 import SensitiveWordManage from '../views/sensitive/SensitiveWordManageView.vue'
+import DifyAppList from '../views/dify/DifyAppListView.vue'
+import DifyChat from '../views/dify/DifyChatView.vue'
+import DifyDataset from '../views/dify/DifyDatasetView.vue'
+import DifyWorkflow from '../views/dify/DifyWorkflowView.vue'
 
 const routes = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true, title: '登录' } },
@@ -30,6 +34,11 @@ const routes = [
   { path: '/mcp/manage', name: 'mcp-manage', component: McpManage, meta: { title: 'MCP 服务管理' } },
   { path: '/model/manage', name: 'model-manage', component: ModelConfigView, meta: { title: '模型配置管理' } },
   { path: '/sensitive/manage', name: 'sensitive-manage', component: SensitiveWordManage, meta: { title: '敏感词管理' } },
+  { path: '/dify/apps', name: 'dify-apps', component: DifyAppList, meta: { title: 'Dify 应用' } },
+  { path: '/dify/dataset', name: 'dify-dataset', component: DifyDataset, meta: { title: 'Dify 知识库' } },
+  // 应用市场里点卡片进入，appCode 决定对接 Dify 的哪个应用
+  { path: '/dify/chat/:appCode', name: 'dify-chat', component: DifyChat, meta: { title: 'Dify 对话' } },
+  { path: '/dify/workflow/:appCode', name: 'dify-workflow', component: DifyWorkflow, meta: { title: 'Dify 工作流' } },
   { path: '/swagger', name: 'swagger', component: SwaggerView, meta: { title: '接口文档' } },
   { path: '/usage', name: 'usage', component: TokenUsageView, meta: { title: '用量统计' } }
 ]
