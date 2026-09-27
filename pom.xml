@@ -232,6 +232,12 @@
             <artifactId>spring-ai-agent-utils-a2a</artifactId>
             <version>0.12.0</version>
         </dependency>
+        <!-- Spring AI 重试模块：提供 RetryUtils / RetryTemplate / RetryPolicy 三个类 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-retry</artifactId>
+            <version>${spring-ai.version}</version>
+        </dependency>
     </dependencies>
 
     <build>

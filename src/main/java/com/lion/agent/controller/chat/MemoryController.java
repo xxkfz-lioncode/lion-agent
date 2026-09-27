@@ -1,4 +1,4 @@
-package com.lion.agent.controller;
+package com.lion.agent.controller.chat;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.lion.agent.common.result.R;

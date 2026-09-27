@@ -1,4 +1,4 @@
-package com.lion.agent.controller;
+package com.lion.agent.controller.chat;
 
 import cn.dev33.satoken.annotation.SaIgnore;
 import com.lion.agent.common.result.R;

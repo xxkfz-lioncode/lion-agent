@@ -1,4 +1,4 @@
-package com.lion.agent.controller;
+package com.lion.agent.controller.knowledge;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;

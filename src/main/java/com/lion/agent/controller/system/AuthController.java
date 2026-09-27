@@ -1,4 +1,4 @@
-package com.lion.agent.controller;
+package com.lion.agent.controller.system;
 
 import com.lion.agent.common.result.R;
 import com.lion.agent.pojo.dto.LoginRequest;

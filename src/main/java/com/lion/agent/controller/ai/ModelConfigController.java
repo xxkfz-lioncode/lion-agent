@@ -1,4 +1,4 @@
-package com.lion.agent.controller;
+package com.lion.agent.controller.ai;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import com.lion.agent.common.result.R;

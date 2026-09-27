@@ -16,7 +16,15 @@
     </header>
 
     <div class="manage-body">
-      <div v-if="knowledgeList.length === 0" class="empty">暂无知识库，点击右上角创建</div>
+      <!-- 加载失败：页面内错误态 + 重试，不再用原生 alert -->
+      <div v-if="loadError" class="error-state">
+        <div class="error-icon">⚠️</div>
+        <p class="error-text">知识库列表加载失败</p>
+        <p class="error-detail">{{ loadError }}</p>
+        <button class="retry-btn" @click="loadList">重新加载</button>
+      </div>
+
+      <div v-else-if="knowledgeList.length === 0" class="empty">暂无知识库，点击右上角创建</div>
 
       <div v-for="kb in knowledgeList" :key="kb.id" class="kb-card">
         <div class="kb-main">
@@ -74,6 +82,14 @@
       :loading="deleting"
       @confirm="onConfirmDelete"
     />
+
+    <!-- 轻量 Toast：替代原生 alert -->
+    <transition name="toast-slide">
+      <div v-if="toast.visible" class="toast" :class="toast.type">
+        <span class="toast-icon">{{ toast.type === 'success' ? '✓' : '⚠' }}</span>
+        <span class="toast-msg">{{ toast.msg }}</span>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -95,10 +111,28 @@ const confirmVisible = ref(false)
 const confirmConfig = ref({ title: '', content: '', confirmText: '确定', cancelText: '取消' })
 const keyword = ref('')
 const pagination = ref({ pageNum: 1, pageSize: 10, pages: 1, total: 0 })
+const loadError = ref('')
+const toast = ref({ visible: false, msg: '', type: 'error' })
+let toastTimer = null
 
 onMounted(() => loadList())
 
+/** 轻量提示：3 秒自动消失，替代原生 alert */
+function showToast(msg, type = 'error') {
+  toast.value = { visible: true, msg, type }
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    toast.value.visible = false
+  }, 3000)
+}
+
+/** 提取接口错误的可读信息 */
+function errMsg(e, fallback) {
+  return e?.message || fallback
+}
+
 async function loadList() {
+  loadError.value = ''
   try {
     const res = await listKnowledge({
       pageNum: pagination.value.pageNum,
@@ -113,7 +147,7 @@ async function loadList() {
       total: Number(res.total) || 0
     }
   } catch (e) {
-    alert('加载失败')
+    loadError.value = errMsg(e, '网络异常，请检查后端服务是否启动')
   }
 }
 
@@ -154,8 +188,9 @@ async function save() {
     }
     closeDialog()
     await loadList()
+    showToast(isEdit.value ? '知识库已更新' : '知识库已创建', 'success')
   } catch (e) {
-    alert('保存失败')
+    showToast('保存失败：' + errMsg(e, '请稍后重试'))
   } finally {
     saving.value = false
   }
@@ -179,8 +214,9 @@ async function onConfirmDelete() {
     await deleteKnowledge(deletingId.value)
     confirmVisible.value = false
     await loadList()
+    showToast('知识库已删除', 'success')
   } catch (e) {
-    alert('删除失败')
+    showToast('删除失败：' + errMsg(e, '请稍后重试'))
   } finally {
     deleting.value = false
     deletingId.value = null
@@ -263,6 +299,92 @@ async function onConfirmDelete() {
   text-align: center;
   color: var(--text-sub);
   padding: 60px 0;
+}
+
+/* ===== 加载失败错误态 ===== */
+.error-state {
+  text-align: center;
+  padding: 70px 0;
+}
+
+.error-icon {
+  font-size: 40px;
+}
+
+.error-text {
+  margin: 14px 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.error-detail {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--text-sub);
+}
+
+.retry-btn {
+  padding: 8px 22px;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.retry-btn:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* ===== Toast 提示 ===== */
+.toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #fff;
+  z-index: 300;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  max-width: 60vw;
+}
+
+.toast.error {
+  background: #d9483f;
+}
+
+.toast.success {
+  background: #2ea44f;
+}
+
+.toast-icon {
+  font-weight: 700;
+}
+
+.toast-msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast-slide-enter-active,
+.toast-slide-leave-active {
+  transition: all 0.25s ease;
+}
+
+.toast-slide-enter-from,
+.toast-slide-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -12px);
 }
 
 .kb-card {

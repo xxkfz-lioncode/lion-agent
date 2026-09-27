@@ -358,7 +358,7 @@ const menuTree = [
       { path: '/sensitive/manage', title: '敏感词管理', icon: '🛡️' }
     ]
   },
-  { key: 'spring-ai', path: '/spring-ai/guide', title: 'Spring AI 大纲', icon: '🌱' },
+  // Spring AI 大纲不在侧边栏显示，从首页「Spring AI 知识体系」卡片进入
   { key: 'usage', path: '/usage', title: '用量统计', icon: '📊' },
   // 接口文档：站内页面内嵌后端 Swagger UI
   { key: 'swagger', path: '/swagger', title: '接口文档', icon: '📘' }
