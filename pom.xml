@@ -210,6 +210,28 @@
             <artifactId>dify-spring-boot4-starter</artifactId>
             <version>2.3.3</version>
         </dependency>
+        <!-- ==================== spring-ai-agent-utils：Claude Code 式 Agent 能力 ==================== -->
+        <!-- 核心工具包：TodoWrite（任务清单）、Task/TaskOutput（子 Agent 派活与取结果）、
+             SkillsTool（技能按需加载）、FileSystemTools 等 -->
+        <dependency>
+            <groupId>org.springaicommunity</groupId>
+            <artifactId>spring-ai-agent-utils</artifactId>
+            <version>0.12.0</version>
+        </dependency>
+        <!-- 公共抽象与工具：SubagentDefinition/Resolver/Executor、TaskCall、TaskRepository 等接口，
+             自定义子 Agent（如 com.lion.agent.agent.tool.DemoSubagents）时需要依赖它 -->
+        <dependency>
+            <groupId>org.springaicommunity</groupId>
+            <artifactId>spring-ai-agent-utils-common</artifactId>
+            <version>0.12.0</version>
+        </dependency>
+        <!-- A2A 协议扩展：把远程 Agent 包装成本地子 Agent（A2ASubagentResolver/Executor），
+             内部依赖 a2a-java-sdk（0.3.3.Final）。跨进程多 Agent 编排用它 -->
+        <dependency>
+            <groupId>org.springaicommunity</groupId>
+            <artifactId>spring-ai-agent-utils-a2a</artifactId>
+            <version>0.12.0</version>
+        </dependency>
     </dependencies>
 
     <build>

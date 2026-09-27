@@ -337,7 +337,8 @@ const menuTree = [
       { path: '/skill/manage', title: '技能管理', icon: '🧩' },
       { path: '/prompt/manage', title: '提示词模板', icon: '📝' },
       { path: '/mcp/manage', title: 'MCP 服务', icon: '🔌' },
-      { path: '/model/manage', title: '模型配置', icon: '🤖' }
+      { path: '/model/manage', title: '模型配置', icon: '🤖' },
+      { path: '/agent/demo', title: 'Agent 工具演示', icon: '🧰' }
     ]
   },
   {
@@ -357,6 +358,7 @@ const menuTree = [
       { path: '/sensitive/manage', title: '敏感词管理', icon: '🛡️' }
     ]
   },
+  { key: 'spring-ai', path: '/spring-ai/guide', title: 'Spring AI 大纲', icon: '🌱' },
   { key: 'usage', path: '/usage', title: '用量统计', icon: '📊' },
   // 接口文档：站内页面内嵌后端 Swagger UI
   { key: 'swagger', path: '/swagger', title: '接口文档', icon: '📘' }

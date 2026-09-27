@@ -65,7 +65,8 @@ springdoc:
     tags-sorter: alpha
     operations-sorter: alpha
     persistAuthorization: true
-  packages-to-scan: com.lion.agent.controller
+  # 扫描范围必须覆盖所有放 @RestController 的包，否则对应接口不会出现在文档中
+  packages-to-scan: com.lion.agent
 
 logging:
   level:

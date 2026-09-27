@@ -18,6 +18,8 @@ import DifyAppList from '../views/dify/DifyAppListView.vue'
 import DifyChat from '../views/dify/DifyChatView.vue'
 import DifyDataset from '../views/dify/DifyDatasetView.vue'
 import DifyWorkflow from '../views/dify/DifyWorkflowView.vue'
+import AgentDemo from '../views/agent/AgentDemoView.vue'
+import SpringAiGuide from '../views/springai/SpringAiGuideView.vue'
 
 const routes = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true, title: '登录' } },
@@ -40,6 +42,8 @@ const routes = [
   { path: '/dify/chat/:appCode', name: 'dify-chat', component: DifyChat, meta: { title: 'Dify 对话' } },
   { path: '/dify/workflow/:appCode', name: 'dify-workflow', component: DifyWorkflow, meta: { title: 'Dify 工作流' } },
   { path: '/swagger', name: 'swagger', component: SwaggerView, meta: { title: '接口文档' } },
+  { path: '/agent/demo', name: 'agent-demo', component: AgentDemo, meta: { title: 'Agent 工具演示' } },
+  { path: '/spring-ai/guide', name: 'spring-ai-guide', component: SpringAiGuide, meta: { title: 'Spring AI 大纲' } },
   { path: '/usage', name: 'usage', component: TokenUsageView, meta: { title: '用量统计' } }
 ]
 

@@ -1,0 +1,34 @@
+server:
+  # 与主工程（8080）错开
+  port: 9999
+
+spring:
+  application:
+    name: lion-a2a-server
+
+  # 敏感配置（API Key 等）统一放项目根目录的 .env 文件（已被 .gitignore 忽略）。
+  # optional: 缺文件不报错；[.properties] 按-properties 语法解析（KEY=VALUE）。
+  # OS 环境变量优先级高于 .env，CI/生产直接注入环境变量即可覆盖。
+  config:
+    import: optional:file:.env[.properties]
+
+  # ==================== 模型：与主工程保持一致（千问 / DashScope OpenAI 兼容端点） ====================
+  ai:
+    openai:
+      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      # 复用主工程同一个环境变量，避免再配一把钥匙。
+      # 【严禁在这里写默认值】yml 会进版本库，密钥必须只存在于 .env（已被 .gitignore 忽略）。
+      api-key: ${QWEN_API_KEY:}
+      chat:
+        model: qwen3.8-max
+        temperature: 0.1
+
+# 远程 Agent 对外声明的地址（写进 AgentCard.url），客户端按它回连
+lion:
+  a2a:
+    self-url: ${LION_A2A_SELF_URL:http://localhost:9999}
+
+logging:
+  level:
+    # 打开可以看到主工程发来的 JSON-RPC 请求与返回
+    com.lion.a2a: DEBUG
