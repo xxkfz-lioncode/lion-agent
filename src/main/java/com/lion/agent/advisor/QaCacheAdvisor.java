@@ -22,7 +22,9 @@ import reactor.core.publisher.Flux;
 
 import java.util.List;
 
+import static com.lion.agent.common.constants.AdvisorConstants.CHAT_TYPE_KEY;
 import static com.lion.agent.common.constants.AdvisorConstants.CONVERSATION_ID_KEY;
+import static com.lion.agent.common.constants.AdvisorConstants.RAW_USER_MESSAGE_KEY;
 import static com.lion.agent.common.constants.AdvisorConstants.USER_ID_KEY;
 
 /**
@@ -38,12 +40,19 @@ import static com.lion.agent.common.constants.AdvisorConstants.USER_ID_KEY;
  * 拿到 reply 后），缓存命中时 reply 即缓存答案，同样会走 ChatServiceImpl 落库，本 Advisor
  * 不直接写 chat_message 表，避免重复插入。
  * <p>
+ * 只有"适合缓存"的问答才会写入缓存（判定见 {@link QaCacheService#isCacheable}）：
+ * 当前时间、实时天气/股价、依赖上下文的追问（"再详细点"）、拒答话术等一律跳过写入，
+ * 避免后续相似问题拿到过期或串味的答案。
+ * <p>
  * 依赖的上下文参数（由业务层通过 {@code .advisors(spec -> spec.param(...))} 注入）：
  * <ul>
  *   <li>{@link AdvisorConstants#USER_ID_KEY}（user_id）</li>
  *   <li>{@link AdvisorConstants#CONVERSATION_ID_KEY}（chat_memory_conversation_id）</li>
+ *   <li>{@link AdvisorConstants#CHAT_TYPE_KEY}（chat_type，用于判断该来源是否允许缓存）</li>
+ *   <li>{@link AdvisorConstants#RAW_USER_MESSAGE_KEY}（raw_user_message，优先作为缓存问题文本）</li>
  * </ul>
- * 取 prompt 中最后一条 USER 消息作为本次问题（本 Advisor 在记忆注入前执行，因此即原始输入）。
+ * 问题文本优先取 {@code raw_user_message}：知识库链路送入模型的是渲染后的 KB prompt（含检索片段），
+ * 拿它做缓存与检索会让向量被片段稀释；缺失时降级取 prompt 中最后一条 USER 消息。
  */
 @Slf4j
 public class QaCacheAdvisor implements CallAdvisor, StreamAdvisor {
@@ -81,9 +90,10 @@ public class QaCacheAdvisor implements CallAdvisor, StreamAdvisor {
     @NotNull
     @Override
     public ChatClientResponse adviseCall(@NotNull ChatClientRequest request, @NotNull CallAdvisorChain chain) {
-        String query = extractUserQuery(request);
+        String query = resolveQuery(request);
         Long userId = resolveUserId(request);
         String conversationId = resolveConversationId(request);
+        String chatType = resolveChatType(request);
 
         // 1. 调用前：检索语义缓存，命中则直接返回历史回答（短路，跳过模型调用）
         if (userId != null && StringUtils.hasText(query)) {
@@ -104,7 +114,7 @@ public class QaCacheAdvisor implements CallAdvisor, StreamAdvisor {
         String reply = extractOutput(response);
         if (userId != null && StringUtils.hasText(reply)) {
             try {
-                qaCacheService.cache(userId, toLong(conversationId), query, reply);
+                qaCacheService.cache(userId, toLong(conversationId), chatType, query, reply);
             } catch (Exception e) {
                 log.warn("[QaCache] 写入语义缓存失败 userId={}", userId, e);
             }
@@ -115,9 +125,10 @@ public class QaCacheAdvisor implements CallAdvisor, StreamAdvisor {
     @NotNull
     @Override
     public Flux<ChatClientResponse> adviseStream(@NotNull ChatClientRequest request, @NotNull StreamAdvisorChain chain) {
-        String query = extractUserQuery(request);
+        String query = resolveQuery(request);
         Long userId = resolveUserId(request);
         String conversationId = resolveConversationId(request);
+        String chatType = resolveChatType(request);
 
         // 调用前：缓存命中则直接下发历史回答，跳过模型调用
         if (userId != null && StringUtils.hasText(query)) {
@@ -143,7 +154,7 @@ public class QaCacheAdvisor implements CallAdvisor, StreamAdvisor {
                     String reply = output.toString();
                     if (userId != null && StringUtils.hasText(reply)) {
                         try {
-                            qaCacheService.cache(userId, toLong(conversationId), query, reply);
+                            qaCacheService.cache(userId, toLong(conversationId), chatType, query, reply);
                         } catch (Exception e) {
                             log.warn("[QaCache] 写入语义缓存失败(流式) userId={}", userId, e);
                         }
@@ -169,7 +180,27 @@ public class QaCacheAdvisor implements CallAdvisor, StreamAdvisor {
             return null;
         }
         AssistantMessage output = response.chatResponse().getResult().getOutput();
-        return output == null ? null : output.getText();
+        return output.getText();
+    }
+
+    /**
+     * 本次问题文本：优先用业务层传入的 {@code raw_user_message}（未加工的用户原话），
+     * 缺失时降级取最后一条 USER 消息（普通对话二者一致）。
+     */
+    private String resolveQuery(ChatClientRequest request) {
+        Object raw = request.context().get(RAW_USER_MESSAGE_KEY);
+        if (raw != null && StringUtils.hasText(raw.toString())) {
+            return raw.toString();
+        }
+        return extractUserQuery(request);
+    }
+
+    /**
+     * 本次会话类型（chat / kb），未注入时返回 null（闸门侧视为不限制）
+     */
+    private String resolveChatType(ChatClientRequest request) {
+        Object value = request.context().get(CHAT_TYPE_KEY);
+        return value != null ? value.toString() : null;
     }
 
     /**
