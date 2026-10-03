@@ -12,6 +12,7 @@ import com.lion.agent.tools.base.DateTools;
 import com.lion.agent.tools.base.StarFortuneTools;
 import com.lion.agent.tools.base.TimeLimiterTools;
 import com.lion.agent.tools.base.UserTools;
+import com.lion.agent.tools.base.WebSearchTools;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.milvus.client.MilvusServiceClient;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -77,7 +79,19 @@ public class ToolRegistryService {
     private static final List<Class<?>> ALWAYS_ON_TOOLS = List.of(UserTools.class, DateTools.class, TimeLimiterTools.class);
 
     /** 可检索工具池：参与向量预筛的工具（新工具写完类在这里登记一行，索引和筛选全自动） */
-    private static final List<Class<?>> RETRIEVABLE_TOOLS = List.of(StarFortuneTools.class);
+    private static final List<Class<?>> RETRIEVABLE_TOOLS = List.of(StarFortuneTools.class, WebSearchTools.class);
+
+    /** 联网搜索工具名：时效性问题强制补位用（见 {@link #needsWebSearch}） */
+    private static final List<String> WEB_SEARCH_TOOL_NAMES = List.of("webSearch", "webExtract");
+
+    /**
+     * 时效性问题特征词：命中则在向量召回之外<b>强制补位</b>联网搜索工具。
+     * <p>原因：向量召回靠语义相似，而"今天金价多少""最近有什么新闻"这类短 query 与工具描述
+     * 未必对得上，漏召回的代价（模型用过期知识硬答）远高于多注册两个工具的 token 开销。
+     */
+    private static final Pattern TIME_SENSITIVE_PATTERN = Pattern.compile(
+            "今天|今日|昨天|昨日|明天|本周|本月|今年|最近|最新|刚刚|现在|此刻|实时|新闻|近日|近期|"
+                    + "热搜|热榜|股价|汇率|天气|多少(钱|元|度)|排行|上市|发布|新版本|涨价|降价");
 
     private final MilvusServiceClient milvusClient;
     private final EmbeddingModel embeddingModel;
@@ -347,6 +361,16 @@ public class ToolRegistryService {
             // 内部自带失败降级（无技能返回空、向量挂了返回当前用户技能全量）
             List<ToolCallback> skillCallbacks = skillToolRegistry.search(query, userId);
             selected.addAll(skillCallbacks);
+            // 时效性问题强制补位联网搜索：向量漏召回时代价过高，见 TIME_SENSITIVE_PATTERN 注释。
+            // 注意去重——Spring AI 校验 ToolCallingChatOptions 时同名工具会抛 "Multiple tools with the same name"
+            if (needsWebSearch(query)) {
+                for (String name : WEB_SEARCH_TOOL_NAMES) {
+                    ToolCallback cb = callbackIndex.get(name);
+                    if (cb != null && selected.stream().noneMatch(x -> name.equals(x.getToolDefinition().name()))) {
+                        selected.add(cb);
+                    }
+                }
+            }
             log.info("工具筛选结果：常驻 {} 个{}，向量命中 {} 个{}，技能命中 {} 个{}",
                     alwaysOnCallbacks.size(),
                     alwaysOnCallbacks.stream().map(cb -> cb.getToolDefinition().name()).collect(Collectors.toList()),
@@ -364,6 +388,15 @@ public class ToolRegistryService {
                     .toList());
         }
         return selected;
+    }
+
+    /**
+     * 判断是否需要在向量召回之外强制补位联网搜索工具。
+     * <p>只做"是否值得注册"的粗判，不做意图分类：宁可多注册两个工具（多花几十 token），
+     * 也不要让模型在没有联网工具的情况下用过期知识硬答时效性问题。
+     */
+    private boolean needsWebSearch(String query) {
+        return query != null && TIME_SENSITIVE_PATTERN.matcher(query).find();
     }
 
     /**

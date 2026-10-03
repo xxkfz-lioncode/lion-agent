@@ -150,6 +150,26 @@ lion:
     # ALAPI Token，用于调用星座运势等第三方接口；通过环境变量或 .env 注入，不填则星座运势工具返回配置缺失提示
     token: ${LION_ALAPI_TOKEN:}
 
+  # 联网搜索（Tavily）：为 Agent 提供实时信息检索能力，见 WebSearchTools
+  tavily:
+    # Tavily API Key（tvly- 开头）；通过环境变量或 .env 注入，不填则联网搜索工具返回配置缺失提示
+    api-key: ${TAVILY_API_KEY:}
+    # 服务根地址，自建代理/网关可覆盖
+    base-url: https://api.tavily.com
+    # 检索深度：basic 1 额度/次、advanced 2 额度/次（advanced 更慢更贵，默认 basic）
+    # 该参数不暴露给模型，避免模型随手选 advanced 导致成本翻倍
+    search-depth: basic
+    # 单次搜索默认返回条数（模型可在 1-20 内覆盖）
+    max-results: 5
+    # 是否附带 Tavily 生成的 AI 摘要；默认关闭，避免模型被"喂答案"而跳过原文比对
+    include-answer: false
+    # 网页正文抓取深度：basic 1 额度/5 个 URL、advanced 2 额度/5 个 URL
+    extract-depth: basic
+    # 连接超时：建连阶段，默认 5s
+    connect-timeout: 5s
+    # 请求超时：含服务端处理与响应读取，默认 20s（advanced 检索较慢，可上调到 30s）
+    read-timeout: 20s
+
   dashscope:
     # DashScope（阿里云百炼）API Key，用于 Rerank 等专用模型接口
     # 默认优先读取 DASHSCOPE_API_KEY，未配置则回退到 QWEN_API_KEY（与千问大模型共享同一账号）
@@ -361,6 +381,18 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 3 # 半开状态下允许 3 个试探请求
         record-exceptions:                        # 记录哪些异常算作失败
           - com.lion.agent.common.exception.BusinessException # ALAPI 调用异常、业务错误码均包装为该异常计入失败
+      # ==================== webSearch：联网搜索工具（WebSearchTools.webSearch / webExtract，调 Tavily） ====================
+      webSearch:
+        sliding-window-type: COUNT_BASED          # 基于调用次数的滑动窗口
+        sliding-window-size: 10                   # 统计最近 10 次调用
+        minimum-number-of-calls: 2                # 外部接口流量小，2 次失败即可开始评估（便于快速熔断）
+        failure-rate-threshold: 50                # 失败率超过 50% 时触发熔断
+        wait-duration-in-open-state: 60s          # 熔断器打开后，等待 60 秒进入半开状态
+        permitted-number-of-calls-in-half-open-state: 3 # 半开状态下允许 3 个试探请求
+        record-exceptions:                        # 记录哪些异常算作失败
+          # 网络异常/超时/非 2xx 在 WebSearchTools 内统一包装为该异常计入失败率；
+          # API Key 未配置属运维问题，工具直接返回提示文案而不抛异常，不计入失败率
+          - com.lion.agent.common.exception.BusinessException
       # ==================== userTools：用户查询工具（UserTools.getUserCount / getUserStatusSummary，查 MySQL） ====================
       userTools:
         sliding-window-type: COUNT_BASED          # 基于调用次数的滑动窗口
