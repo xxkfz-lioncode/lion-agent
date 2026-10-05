@@ -76,6 +76,28 @@ spring:
           # 用于控制“每次请求最多带几个候选工具”，避免工具过多撑大 prompt。
           max-results: 5
 
+    # ===== TypeSafe（JEV 判断模型，spring-ai-starter-typesafe）=====
+    # 用判断模型处理意图识别/分类路由/评分/护栏/重排，比通用大模型便宜且快。
+    # 注意：TypeSafeClient Bean 仅在 api-key 有值时创建。
+    typesafe:
+      # ⚠️ api-key 刻意不写在这里：starter 对"属性存在但为空"的做法是【启动失败】，
+      #    写成 ${TYPESAFE_API_KEY:} 而环境变量未设置就会直接起不来。
+      #    正确做法：把 spring.ai.typesafe.api-key=xxx 写进 .env（见 .env.example）。
+      #    不填则属性完全不存在 → 自动配置跳过 → 应用正常启动，仅该功能不可用。
+      api-key: ${TYPESAFE_API_KEY}
+      # 服务根地址（自部署/代理可覆盖）
+      base-url: https://api.typesafe.ai
+      # 默认模型：请求未显式指定 model 时使用
+      model: jev-latest
+      # 单次 HTTP 超时（不含重试）
+      timeout: 10s
+      # 重试预算（0.4.0+ 支持；0.2.0 若报未知属性可整段注释，未知属性默认忽略不影响启动）
+      retry:
+        max-retries: 2
+        initial-backoff: 500ms
+        max-backoff: 5s
+        jitter: 0.25
+        total-timeout: 30s
 
 
 # ==================== MyBatis-Plus（公共） ====================

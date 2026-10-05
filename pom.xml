@@ -238,6 +238,13 @@
             <artifactId>spring-ai-retry</artifactId>
             <version>${spring-ai.version}</version>
         </dependency>
+        <!-- TypeSafe：JEV 判断模型客户端，用于意图识别 / 分类 / 评分等轻量判断任务。
+         https://console.typesafe.ai/usage-->
+        <dependency>
+            <groupId>org.springaicommunity</groupId>
+            <artifactId>spring-ai-starter-typesafe</artifactId>
+            <version>0.2.0</version>
+        </dependency>
     </dependencies>
 
     <build>
