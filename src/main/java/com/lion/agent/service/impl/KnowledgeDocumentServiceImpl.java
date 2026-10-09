@@ -144,6 +144,92 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     }
 
     @Override
+    public KnowledgeDocument replace(Long knowledgeId, Long docId, Long userId, MultipartFile file, String splitter) {
+        knowledgeBaseService.getById(knowledgeId, userId);
+
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException("文件不能为空");
+        }
+        String originalFilename = file.getOriginalFilename();
+        if (!StringUtils.hasText(originalFilename)) {
+            throw new BusinessException("文件名不能为空");
+        }
+        String contentType = file.getContentType();
+        if (!allowedTypes.contains(contentType)) {
+            throw new BusinessException("暂不支持的文件类型：" + contentType);
+        }
+
+        KnowledgeDocument doc = documentMapper.selectById(docId);
+        if (doc == null || !doc.getKnowledgeId().equals(knowledgeId)) {
+            throw new BusinessException("文档不存在");
+        }
+        // 处理中的文档禁止替换：后台消费者可能正在写向量，此刻清理会产生竞态
+        if (DocumentStatus.PROCESSING.getCode() == doc.getStatus()) {
+            throw new BusinessException("文档正在处理中，请等待处理完成后再重新上传");
+        }
+
+        Path newPath = null;
+        try {
+            // 1. 新文件先落盘
+            newPath = saveFileToDisk(knowledgeId, file, originalFilename);
+
+            // 2. 清理旧向量分片与内存副本（失败则中止替换，避免新旧分片混杂）
+            try {
+                store().delete("documentId == " + docId);
+                chunkStore.removeByDocumentId(docId);
+            } catch (Exception e) {
+                log.error("清理旧向量分片失败，中止重新上传 docId={}", docId, e);
+                throw new BusinessException("向量库暂不可用，无法重新处理，请稍后重试");
+            }
+
+            // 3. 覆盖文档元数据（状态置为处理中，processDocument 的幂等检查会放行重新处理）
+            String oldFilePath = doc.getFilePath();
+            doc.setFileName(originalFilename);
+            doc.setFileSize(file.getSize());
+            doc.setFileType(contentType);
+            doc.setFilePath(newPath.toAbsolutePath().normalize().toString());
+            if (StringUtils.hasText(splitter)) {
+                doc.setSplitter(splitter);
+            }
+            doc.setStatus(DocumentStatus.PROCESSING.getCode());
+            doc.setFailReason(null);
+            documentMapper.updateById(doc);
+
+            // 4. 删除旧物理文件（元数据已指向新文件）
+            if (StringUtils.hasText(oldFilePath)) {
+                deletePhysicalFile(Paths.get(oldFilePath));
+            }
+
+            // 5. 重新入队异步处理
+            boolean pushed = taskQueue.push(DocumentProcessConsumer.QUEUE_NAME,
+                    new DocumentProcessTask(doc.getId(), knowledgeId, doc.getFilePath(), doc.getSplitter(), 0));
+            if (!pushed) {
+                throw new BusinessException("任务入队失败，请稍后重试");
+            }
+            log.info("文档重新上传成功，已入队异步处理 docId={} knowledgeId={} splitter={}",
+                    doc.getId(), knowledgeId, doc.getSplitter());
+            return doc;
+        } catch (BusinessException e) {
+            rollbackReplace(doc, newPath, e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("文档重新上传失败，docId={}", docId, e);
+            rollbackReplace(doc, newPath, e.getMessage());
+            throw new BusinessException("重新上传失败：" + e.getMessage());
+        }
+    }
+
+    /** 重新上传失败回滚：清理已落盘的新文件，文档标记为失败（用户可再次重新上传修复） */
+    private void rollbackReplace(KnowledgeDocument doc, Path newPath, String message) {
+        if (newPath != null) {
+            deletePhysicalFile(newPath);
+        }
+        doc.setStatus(DocumentStatus.FAIL.getCode());
+        doc.setFailReason(truncate(message, 500));
+        documentMapper.updateById(doc);
+    }
+
+    @Override
     public void processDocument(Long knowledgeId, Long docId, String filePath, String splitter) {
         // 幂等：已成功的文档不重复处理（可能因重试/重复入队再次消费）
         KnowledgeDocument doc = documentMapper.selectById(docId);

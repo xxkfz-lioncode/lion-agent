@@ -3,12 +3,13 @@ package com.lion.agent.service;
 import com.lion.agent.common.result.PageResult;
 import com.lion.agent.pojo.dto.KnowledgeBaseRequest;
 import com.lion.agent.pojo.entity.KnowledgeBase;
+import com.lion.agent.pojo.vo.KnowledgeBaseVo;
 
 import java.util.List;
 
 public interface KnowledgeBaseService {
 
-    PageResult<KnowledgeBase> listByUser(Long userId, int pageNum, int pageSize, String keyword);
+    PageResult<KnowledgeBaseVo> listByUser(Long userId, int pageNum, int pageSize, String keyword);
 
     /**
      * 查询用户全部知识库（不分页，按创建时间倒序）。

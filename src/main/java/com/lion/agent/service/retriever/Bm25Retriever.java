@@ -147,13 +147,25 @@ public class Bm25Retriever implements Retriever {
     }
 
     /**
-     * 单条件匹配：field == value（value 支持数字与引号包裹的字符串）。
+     * 单条件匹配：支持 {@code field == value} 与 {@code field != value}
+     * （value 支持数字与引号包裹的字符串）。
+     * 字段缺失时按不匹配处理（保守策略，不误召回越权数据）。
      */
     private boolean matchesCondition(Map<String, Object> metadata, String condition) {
         if (metadata == null || condition.isEmpty()) {
             return false;
         }
-        int idx = condition.indexOf("==");
+        int eqIdx = condition.indexOf("==");
+        int neIdx = condition.indexOf("!=");
+        boolean negate;
+        int idx;
+        if (neIdx >= 0 && (eqIdx < 0 || neIdx < eqIdx)) {
+            negate = true;
+            idx = neIdx;
+        } else {
+            negate = false;
+            idx = eqIdx;
+        }
         if (idx < 0) {
             return false;
         }
@@ -163,16 +175,19 @@ public class Bm25Retriever implements Retriever {
         if (actual == null) {
             return false;
         }
+        boolean equals;
         if ((rawValue.startsWith("'") && rawValue.endsWith("'"))
                 || (rawValue.startsWith("\"") && rawValue.endsWith("\""))) {
-            return actual.toString().equals(rawValue.substring(1, rawValue.length() - 1));
+            equals = actual.toString().equals(rawValue.substring(1, rawValue.length() - 1));
+        } else {
+            try {
+                long expected = Long.parseLong(rawValue);
+                equals = actual instanceof Number && ((Number) actual).longValue() == expected;
+            } catch (NumberFormatException e) {
+                equals = actual.toString().equals(rawValue);
+            }
         }
-        try {
-            long expected = Long.parseLong(rawValue);
-            return actual instanceof Number && ((Number) actual).longValue() == expected;
-        } catch (NumberFormatException e) {
-            return actual.toString().equals(rawValue);
-        }
+        return negate ? !equals : equals;
     }
 
     // ==================== 分词与 BM25 统计 ====================

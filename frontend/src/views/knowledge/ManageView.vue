@@ -26,18 +26,28 @@
 
       <div v-else-if="knowledgeList.length === 0" class="empty">暂无知识库，点击右上角创建</div>
 
-      <div v-for="kb in knowledgeList" :key="kb.id" class="kb-card">
-        <div class="kb-main">
-          <div class="kb-icon">📚</div>
-          <div class="kb-info">
-            <h3 class="kb-name">{{ kb.name }}</h3>
-            <p class="kb-desc">{{ kb.description || '暂无描述' }}</p>
-            <p class="kb-meta">创建于 {{ kb.createdAt }}</p>
-          </div>
+      <div v-else class="kb-list">
+        <div class="list-header">
+          <span class="col name">名称</span>
+          <span class="col desc">描述</span>
+          <span class="col count">文档数</span>
+          <span class="col time">创建时间</span>
+          <span class="col actions">操作</span>
         </div>
-        <div class="kb-actions">
-          <button class="action-btn" @click="openDialog(kb)">编辑</button>
-          <button class="action-btn danger" @click="remove(kb.id)">删除</button>
+        <div v-for="kb in knowledgeList" :key="kb.id" class="list-row">
+          <span class="col name">
+            <span class="kb-icon">📚</span>
+            <span class="kb-name">{{ kb.name }}</span>
+          </span>
+          <span class="col desc" :title="kb.description">{{ kb.description || '暂无描述' }}</span>
+          <span class="col count">
+            <span class="count-badge">{{ kb.documentCount ?? 0 }}</span>
+          </span>
+          <span class="col time">{{ formatTime(kb.createdAt) }}</span>
+          <span class="col actions">
+            <button class="action-btn" @click="openDialog(kb)">编辑</button>
+            <button class="action-btn danger" @click="remove(kb.id)">删除</button>
+          </span>
         </div>
       </div>
     </div>
@@ -129,6 +139,12 @@ function showToast(msg, type = 'error') {
 /** 提取接口错误的可读信息 */
 function errMsg(e, fallback) {
   return e?.message || fallback
+}
+
+/** 时间格式化：2026-10-09T20:42:13 -> 2026-10-09 20:42:13 */
+function formatTime(time) {
+  if (!time) return ''
+  return String(time).replace('T', ' ').slice(0, 19)
 }
 
 async function loadList() {
@@ -387,54 +403,94 @@ async function onConfirmDelete() {
   transform: translate(-50%, -12px);
 }
 
-.kb-card {
+/* ===== 知识库列表（表格样式） ===== */
+.kb-list {
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 20px 24px;
-  margin-bottom: 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  overflow: hidden;
 }
 
-.kb-main {
-  display: flex;
+.list-header,
+.list-row {
+  display: grid;
+  grid-template-columns: 1.2fr 2fr 0.7fr 1.1fr auto;
   gap: 16px;
-  align-items: flex-start;
+  align-items: center;
+  padding: 14px 24px;
+}
+
+.list-header {
+  background: #fafafa;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-sub);
+  border-bottom: 1px solid var(--border);
+}
+
+.list-row {
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-main);
+  transition: background 0.15s;
+}
+
+.list-row:last-child {
+  border-bottom: none;
+}
+
+.list-row:hover {
+  background: #fafbfc;
+}
+
+.col.name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .kb-icon {
-  font-size: 32px;
-}
-
-.kb-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  font-size: 20px;
+  flex-shrink: 0;
 }
 
 .kb-name {
-  margin: 0;
-  font-size: 15px;
   font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.kb-desc {
-  margin: 0;
-  font-size: 13px;
+.col.desc {
   color: var(--text-sub);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.kb-meta {
-  margin: 4px 0 0;
-  font-size: 12px;
+.col.time {
   color: #aaa;
+  font-size: 12px;
 }
 
-.kb-actions {
+.col.actions {
   display: flex;
   gap: 10px;
+  justify-content: flex-end;
+}
+
+.count-badge {
+  display: inline-block;
+  min-width: 26px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(64, 123, 255, 0.1);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
 }
 
 .action-btn {

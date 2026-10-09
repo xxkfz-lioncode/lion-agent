@@ -17,6 +17,14 @@ public interface KnowledgeDocumentService {
     KnowledgeDocument upload(Long knowledgeId, Long userId, MultipartFile file, String splitter);
 
     /**
+     * 重新上传：用新文件替换原文档并重新处理。删除原向量分片与内存副本后，
+     * 覆盖文档元数据（文件名/大小/类型/路径/切分方式）并重新入队异步处理。
+     *
+     * @param splitter 新的切分方式，为空则沿用原文档的切分方式
+     */
+    KnowledgeDocument replace(Long knowledgeId, Long docId, Long userId, MultipartFile file, String splitter);
+
+    /**
      * 异步处理文档（后台消费者调用）：读取文件 → 解析 → 切分 → 写入向量库 → 更新状态。
      * 失败时内部更新状态为失败并记录原因。
      *

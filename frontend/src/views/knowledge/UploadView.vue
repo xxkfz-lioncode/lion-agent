@@ -36,6 +36,13 @@
           hidden
           @change="onFileSelected"
         >
+        <input
+          ref="reuploadInput"
+          type="file"
+          accept=".txt,.md,.pdf,.doc,.docx"
+          hidden
+          @change="onReuploadSelected"
+        >
         <button class="upload-btn" @click="selectFile">+ 上传文档</button>
       </div>
     </header>
@@ -72,6 +79,15 @@
               <button class="action-btn primary" title="预览" @click="openPreview(doc)">
                 <span class="btn-icon">👁</span>
                 <span class="btn-text">预览</span>
+              </button>
+              <button
+                class="action-btn"
+                title="重新上传"
+                :disabled="doc.status === 2"
+                @click="requestReupload(doc)"
+              >
+                <span class="btn-icon">🔄</span>
+                <span class="btn-text">重新上传</span>
               </button>
               <button class="action-btn danger" title="删除" @click="requestDelete(doc)">
                 <span class="btn-icon">🗑</span>
@@ -149,13 +165,24 @@
       type="danger"
       @confirm="confirmDelete"
     />
+
+    <!-- 重新上传确认弹窗 -->
+    <ConfirmDialog
+      v-model="reuploadConfirmVisible"
+      title="重新上传文档"
+      :content="reuploadConfirmContent"
+      confirm-text="替换并重新处理"
+      type="primary"
+      :loading="reuploading"
+      @confirm="confirmReupload"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { listDocuments, uploadDocument, deleteDocument, previewDocument, listKnowledge } from '../../api/knowledge'
+import { listDocuments, uploadDocument, replaceDocument, deleteDocument, previewDocument, listKnowledge } from '../../api/knowledge'
 import ConfirmDialog from '../../components/ConfirmDialog.vue'
 import PaginationBar from '../../components/PaginationBar.vue'
 
@@ -174,6 +201,14 @@ const uploading = ref(false)
 const confirmVisible = ref(false)
 const confirmContent = ref('')
 const pendingDeleteId = ref(null)
+
+// 重新上传：选中新文件 → 确认 → 替换原文档并重新处理
+const reuploadInput = ref(null)
+const pendingReuploadDoc = ref(null)
+const pendingReuploadFile = ref(null)
+const reuploadConfirmVisible = ref(false)
+const reuploadConfirmContent = ref('')
+const reuploading = ref(false)
 
 const previewVisible = ref(false)
 const previewDoc = ref({})
@@ -339,6 +374,48 @@ function requestDelete(doc) {
   pendingDeleteId.value = doc.id
   confirmContent.value = `确定删除文档「${doc.fileName}」吗？删除后将同步移除向量库中的分片。`
   confirmVisible.value = true
+}
+
+function requestReupload(doc) {
+  if (doc.status === 2) return
+  pendingReuploadDoc.value = doc
+  reuploadInput.value?.click()
+}
+
+function onReuploadSelected(e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file || !pendingReuploadDoc.value) return
+  pendingReuploadFile.value = file
+  reuploadConfirmContent.value =
+    `确定用「${file.name}」替换文档「${pendingReuploadDoc.value.fileName}」吗？\n` +
+    `将删除原有分片，并按当前选中的切分方式「${splitterLabel(splitter.value)}」重新处理。`
+  reuploadConfirmVisible.value = true
+}
+
+async function confirmReupload() {
+  const kbId = currentKbId()
+  const doc = pendingReuploadDoc.value
+  const file = pendingReuploadFile.value
+  if (!kbId || !doc || !file) {
+    reuploadConfirmVisible.value = false
+    return
+  }
+  reuploading.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('splitter', splitter.value || 'token')
+    await replaceDocument(kbId, doc.id, formData)
+    pendingReuploadDoc.value = null
+    pendingReuploadFile.value = null
+    await loadList()
+  } catch (e) {
+    alert('重新上传失败：' + (e.message || e))
+  } finally {
+    reuploading.value = false
+    reuploadConfirmVisible.value = false
+  }
 }
 
 async function confirmDelete() {
@@ -536,7 +613,7 @@ function closePreview() {
 .col-status { width: 120px; }
 .col-splitter { width: 110px; }
 .col-time { width: 140px; }
-.col-actions { width: 120px; white-space: nowrap; }
+.col-actions { width: 190px; white-space: nowrap; }
 
 .cell-name {
   overflow: hidden;

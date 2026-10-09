@@ -43,6 +43,16 @@ public class KnowledgeDocumentController {
         return R.success(documentService.upload(knowledgeId, userId, file, splitter));
     }
 
+    @Operation(summary = "重新上传文档（替换文件并重新处理）")
+    @PutMapping("/{docId}/file")
+    public R<KnowledgeDocument> replace(@PathVariable Long knowledgeId,
+                                        @PathVariable Long docId,
+                                        @RequestParam("file") MultipartFile file,
+                                        @RequestParam(required = false) String splitter) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return R.success(documentService.replace(knowledgeId, docId, userId, file, splitter));
+    }
+
     @Operation(summary = "删除文档")
     @DeleteMapping("/{docId}")
     public R<Void> delete(@PathVariable Long knowledgeId,

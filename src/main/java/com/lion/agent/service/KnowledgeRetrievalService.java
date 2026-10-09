@@ -1,11 +1,16 @@
 package com.lion.agent.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.lion.agent.common.enums.DocumentStatus;
 import com.lion.agent.common.enums.VectorType;
 import com.lion.agent.config.PromptConfig;
+import com.lion.agent.mapper.KnowledgeDocumentMapper;
 import com.lion.agent.pojo.entity.KnowledgeBase;
+import com.lion.agent.pojo.entity.KnowledgeDocument;
 import com.lion.agent.service.retriever.ChunkPos;
 import com.lion.agent.service.retriever.MilvusChunkReader;
 import com.lion.agent.service.retriever.MultiRouteRetriever;
+import com.lion.agent.service.retriever.Retriever;
 import com.lion.agent.common.utils.DashScopeRerankUtils;
 import com.lion.agent.pojo.vo.ChunkSource;
 import lombok.RequiredArgsConstructor;
@@ -59,6 +64,8 @@ public class KnowledgeRetrievalService {
     private static final double GATE_MIN_SCORE = 0.2;
 
     private final KnowledgeBaseService knowledgeBaseService;
+    /** 文档 Mapper：检索前查询未处理成功（处理中/失败）的文档，用于排除其分片 */
+    private final KnowledgeDocumentMapper documentMapper;
     /** 多路召回组合器：自动收集全部 {@link Retriever} 实现并 RRF 融合 */
     private final MultiRouteRetriever multiRouteRetriever;
     /** 无 Advisor 的裸模型：用于重排/门控等辅助调用，避免污染语义缓存与会话记忆 */
@@ -125,37 +132,55 @@ public class KnowledgeRetrievalService {
     /**
      * 解析检索过滤条件：
      * <ul>
-     *   <li>指定 knowledgeId → 校验归属，返回 {@code type == 'kb' && knowledgeId == X}</li>
-     *   <li>未指定 → 查询用户全部知识库 ID，返回
-     *       {@code type == 'kb' && (knowledgeId == 1 || knowledgeId == 2 || ...)}</li>
+     *   <li>指定 knowledgeId → 校验归属；未指定 → 查询用户全部知识库</li>
+     *   <li>统一带 {@code type == 'kb'}：只召回知识库分片，自动排除同集合内的
+     *       工具索引/技能索引/QA 缓存/长期记忆等其他类型数据</li>
+     *   <li>逐库追加 {@code documentId != x} 排除条件：处理中/失败的文档尚未完整入库
+     *       （分批写向量，可能只写入了一部分），把它们的分片排除，避免问答命中残缺内容</li>
      *   <li>用户无任何知识库 → 返回 null（调用方直接判为不可检索）</li>
      * </ul>
-     * 统一带 {@code type == 'kb'}：只召回知识库分片，自动排除同集合内的
-     * 工具索引/技能索引/QA 缓存/长期记忆等其他类型数据。
      */
     private String resolveFilter(Long userId, Long knowledgeId) {
-        String scope;
+        List<Long> kbIds;
         if (knowledgeId != null) {
             knowledgeBaseService.getById(knowledgeId, userId);
-            scope = "knowledgeId == " + knowledgeId;
+            kbIds = List.of(knowledgeId);
         } else {
-            List<KnowledgeBase> kbs = knowledgeBaseService.listAllByUser(userId);
-            if (kbs.isEmpty()) {
+            kbIds = knowledgeBaseService.listAllByUser(userId).stream()
+                    .map(KnowledgeBase::getId)
+                    .toList();
+            if (kbIds.isEmpty()) {
                 return null;
             }
-            // 只有 1 个知识库时直接走等值过滤，与前端「指定知识库」行为一致
-            if (kbs.size() == 1) {
-                scope = "knowledgeId == " + kbs.get(0).getId();
-            } else {
-                // 多个知识库时避免使用 in 操作符：Spring AI/Milvus 对 in 的解析在
-                // 单元素列表/数值类型/JSON 字段等场景下不稳定，统一用 OR 条件兼容
-                // 语义检索与 BM25 直接查询。
-                scope = kbs.stream()
-                        .map(kb -> "knowledgeId == " + kb.getId())
-                        .collect(Collectors.joining(" || ", "(", ")"));
-            }
+        }
+        // 多个知识库时避免使用 in 操作符：Spring AI/Milvus 对 in 的解析在
+        // 单元素列表/数值类型/JSON 字段等场景下不稳定，统一用 OR 条件兼容
+        // 语义检索与 BM25 直接查询。
+        String scope = kbIds.stream()
+                .map(this::buildKbBranch)
+                .collect(Collectors.joining(" || "));
+        if (kbIds.size() > 1) {
+            scope = "(" + scope + ")";
         }
         return "type == '" + VectorType.KB.getValue() + "' && " + scope;
+    }
+
+    /**
+     * 构造单个知识库的过滤分支：{@code knowledgeId == X}，并排除未处理成功（处理中/失败）的文档。
+     */
+    private String buildKbBranch(Long kbId) {
+        StringBuilder branch = new StringBuilder("knowledgeId == ").append(kbId);
+        List<Long> unreadyIds = documentMapper.selectList(new LambdaQueryWrapper<KnowledgeDocument>()
+                        .select(KnowledgeDocument::getId)
+                        .eq(KnowledgeDocument::getKnowledgeId, kbId)
+                        .ne(KnowledgeDocument::getStatus, DocumentStatus.SUCCESS.getCode()))
+                .stream()
+                .map(KnowledgeDocument::getId)
+                .toList();
+        for (Long docId : unreadyIds) {
+            branch.append(" && documentId != ").append(docId);
+        }
+        return branch.toString();
     }
 
     /**

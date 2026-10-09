@@ -6,6 +6,7 @@ import com.lion.agent.common.result.PageResult;
 import com.lion.agent.common.result.R;
 import com.lion.agent.pojo.dto.KnowledgeBaseRequest;
 import com.lion.agent.pojo.entity.KnowledgeBase;
+import com.lion.agent.pojo.vo.KnowledgeBaseVo;
 import com.lion.agent.service.KnowledgeBaseService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,7 +27,7 @@ public class KnowledgeBaseController {
 
     @Operation(summary = "知识库列表")
     @GetMapping
-    public R<PageResult<KnowledgeBase>> list(
+    public R<PageResult<KnowledgeBaseVo>> list(
             @RequestParam(required = false, defaultValue = "1") @Min(1) int pageNum,
             @RequestParam(required = false, defaultValue = "10") @Min(1) @Max(100) int pageSize,
             @RequestParam(required = false) String keyword) {

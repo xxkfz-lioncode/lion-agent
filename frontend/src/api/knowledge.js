@@ -30,6 +30,13 @@ export function deleteDocument(knowledgeId, docId) {
   return request.delete(`/knowledge/${knowledgeId}/documents/${docId}`)
 }
 
+/** 重新上传：用新文件替换原文档并重新处理 */
+export function replaceDocument(knowledgeId, docId, formData) {
+  return request.put(`/knowledge/${knowledgeId}/documents/${docId}/file`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
 export function previewDocument(knowledgeId, docId) {
   return request.get(`/knowledge/${knowledgeId}/documents/${docId}/preview`)
 }
