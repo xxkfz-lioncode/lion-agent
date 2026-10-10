@@ -6,8 +6,8 @@ rem       non-ASCII text breaks parsing -> garbled output + window closes.
 rem
 rem Usage:
 rem   start-backend.bat              default profile(dev), port from project config
-rem   start-backend.bat prod         specify profile
-rem   start-backend.bat prod 8081    specify profile + port
+rem   start-backend.bat dev          specify profile (dev / default / etc.)
+rem   start-backend.bat dev 8081     specify profile + port
 rem
 rem Reuse in another project: only edit the CONFIG block below.
 rem ============================================================

@@ -1,0 +1,37 @@
+# ============================================================
+# Docker 构建上下文忽略清单（后端镜像，构建上下文为项目根目录）
+# 目的：减小上下文体积、避免本地产物/密钥被打进镜像
+# ============================================================
+
+# 构建产物
+# 注意：target/*.jar 是镜像必需的输入（Dockerfile 直接拷入已打好的 jar），
+#      因此这里不能忽略 target/，否则 docker build 会报找不到 target/*.jar
+frontend/dist/
+frontend/node_modules/
+**/node_modules/
+
+# 版本控制与 IDE
+.git/
+.gitignore
+.idea/
+.vscode/
+*.iml
+
+# 文档与脚本（镜像内不需要）
+*.md
+README*
+docs/
+bin/
+
+# 密钥与本地环境文件（切勿打进镜像）
+.env
+.env.*
+!.env.example
+
+# 日志与本地上传文件
+logs/
+*.log
+upload/
+
+# 其他无关目录
+a2a-server/

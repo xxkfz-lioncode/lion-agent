@@ -41,12 +41,12 @@ public class LionAgentApplication {
         double costSeconds = Duration.between(start, Instant.now()).toMillis() / 1000.0;
         String cost = String.format("%.2f s", costSeconds);
         String jdk = System.getProperty("java.version");
-        // springdoc.swagger-ui.enabled 在 dev 默认为 true，prod 显式关闭
+        // 由 springdoc.swagger-ui.enabled 控制（默认 true，生产可用 SPRINGDOC_ENABLED=false 关闭）
         boolean docEnabled = env.getProperty("springdoc.swagger-ui.enabled", Boolean.class, true);
         String docInfo = docEnabled
                 ? String.format("接口文档  : http://localhost:%s%s/swagger-ui/index.html%n"
                         + "  接口JSON : http://localhost:%s%s/v3/api-docs", port, contextPath, port, contextPath)
-                : "  接口文档  : 已关闭（prod 环境默认禁用）";
+                : "  接口文档  : 已关闭（SPRINGDOC_ENABLED=false）";
 
         // Actuator 监控：management.endpoints.web.exposure.include=* 已暴露全部端点（yml 中配置）；
         // base-path 未显式配置时默认 /actuator

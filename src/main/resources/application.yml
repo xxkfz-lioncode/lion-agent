@@ -1,18 +1,48 @@
+# ============================================================
+# Lion Agent 主配置（公共配置 + 全环境默认值）
+#
+# 配置文件分工：
+#   application.yml      公共配置：框架行为、业务参数、中间件连接默认值（均可用环境变量覆盖）
+#   application-dev.yml  本地开发档：调试日志、接口文档、AI 观测日志（默认激活）
+#
+# 覆盖优先级：系统环境变量 > .env 文件 > application-dev.yml > application.yml
+# 本地开发：默认激活 dev，无需额外配置
+# 服务器部署：dev 档里的每一项都能用环境变量关掉（见 docker-compose.yml 的 backend 服务）
+# ============================================================
+
 server:
   port: ${LION_AGENT_PORT:8080}
 
 spring:
   application:
     name: lion-agent
-  # 默认激活环境：dev / prod（也可通过启动参数 --spring.profiles.active=prod 覆盖）
+  # 默认激活本地开发档；服务器部署时用环境变量 SPRING_PROFILES_ACTIVE 覆盖
   profiles:
-    active: dev
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   # 敏感配置统一从项目根目录的 .env 文件加载（KEY=VALUE 每行一个），
   # optional 前缀：文件不存在时不报错，仅使用下方默认值或系统环境变量。
   # 优先级：系统环境变量 > .env 文件 > yml 内的默认值。
   # 参考模板见 .env.example；.env 已被 gitignore，请勿提交真实密钥。
   config:
     import: optional:file:.env[.properties]
+
+  # ==================== 数据源（MySQL 8） ====================
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 容器内用服务名：DB_URL=jdbc:mysql://mysql:3306/lion_agent?...（见 docker-compose.yml）
+    url: ${DB_URL:jdbc:mysql://localhost:3306/lion_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:xxkfz}
+    password: ${DB_PASSWORD:xxkfz}
+
+  # ==================== Redis：Redisson（读取 spring.data.redis 自动构建连接，连接池由 Redisson 自管） ====================
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      database: 0
+      password: ${REDIS_PASSWORD:123456}
+      timeout: 10s
+
   # 文件上传大小限制（超过则抛 MaxUploadSizeExceededException）
   servlet:
     multipart:
@@ -75,6 +105,15 @@ spring:
           # 单次会话初始化时最多向工具索引召回并注入上下文的任务数上限，
           # 用于控制“每次请求最多带几个候选工具”，避免工具过多撑大 prompt。
           max-results: 5
+      # JDBC 会话记忆存储：自动建表（幂等，重启不会重复执行）
+      memory:
+        repository:
+          jdbc:
+            initialize-schema: always
+      # 大模型请求/响应日志：默认关闭（避免生产日志落用户隐私内容）；本地开发档会打开
+      observations:
+        log-completion: ${AI_LOG_PROMPT:false}
+        log-prompt: ${AI_LOG_PROMPT:false}
 
     # ===== TypeSafe（JEV 判断模型，spring-ai-starter-typesafe）=====
     # 用判断模型处理意图识别/分类路由/评分/护栏/重排，比通用大模型便宜且快。
@@ -98,6 +137,36 @@ spring:
         max-backoff: 5s
         jitter: 0.25
         total-timeout: 30s
+
+    # ==================== OpenAI 兼容接口（默认接入阿里云 DashScope 千问） ====================
+    openai:
+      base-url: ${QWEN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      # 千问 API Key：https://dashscope.console.aliyun.com/ 获取，通过环境变量或 .env 注入，禁止硬编码
+      api-key: ${QWEN_API_KEY:}
+      chat:
+        model: ${QWEN_MODEL:qwen3.8-max}
+        temperature: ${QWEN_TEMPERATURE:0.1}
+      # 文本向量化模型（text-embedding-v3 输出 1024 维，需与下方 embedding-dimension 一致）
+      # 注意：必须放在 spring.ai.openai.embedding 下，放错位置会回退到默认模型 text-embedding-ada-002
+      embedding:
+        model: ${QWEN_EMBEDDING_MODEL:text-embedding-v3}
+
+    # ==================== 向量数据库：Milvus ====================
+    # 注意：collection-name 必须与 lion.knowledge.collection-name 保持一致：
+    # 写入侧（KnowledgeDocumentServiceImpl）读 lion.knowledge.*，检索侧（默认 VectorStore Bean）读这里，
+    # 两处都取自同一个 MILVUS_COLLECTION 变量，避免「写入 A 集合、检索 B 集合」导致召回为空
+    vectorstore:
+      milvus:
+        client:
+          host: ${MILVUS_HOST:127.0.0.1}
+          port: ${MILVUS_PORT:19530}
+        database-name: ${MILVUS_DATABASE:default}
+        collection-name: ${MILVUS_COLLECTION:lion_agent_knowledge}
+        embedding-dimension: 1024
+        metric-type: COSINE
+        index-type: AUTOINDEX
+        # 2.x 默认 false，需显式开启以自动建库建集合
+        initialize-schema: true
 
 
 # ==================== MyBatis-Plus（公共） ====================
@@ -163,8 +232,9 @@ lion:
 
   # 知识库文档向量（RAG）：文档分片向量化后存入 Milvus，与语义缓存/工具索引/技能索引/记忆物理隔离
   knowledge:
-    # 知识库专用 Milvus collection（dev 可覆盖为 lion_base_docs，prod 默认 lion_agent_knowledge）
-    collection-name: lion_agent_knowledge
+    # 知识库专用 Milvus collection：必须与 spring.ai.vectorstore.milvus.collection-name 一致，
+    # 两者都读 MILVUS_COLLECTION，保证写入与检索指向同一集合
+    collection-name: ${MILVUS_COLLECTION:lion_agent_knowledge}
     # 向量维度，必须与 embedding 模型输出一致（text-embedding-v3 为 1024）
     embedding-dimension: 1024
 
@@ -481,3 +551,22 @@ dify:
   client-config:
     # 是否打印 SDK 的请求日志（含请求头与响应），排错时打开，生产环境建议关闭
     logging: true
+
+# ==================== SpringDoc 接口文档（开关） ====================
+# 生产环境设 SPRINGDOC_ENABLED=false 关闭；UI 排序与包扫描见 application-dev.yml
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_ENABLED:true}
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: ${SPRINGDOC_ENABLED:true}
+
+knife4j:
+  enable: ${SPRINGDOC_ENABLED:true}
+
+# ==================== 日志 ====================
+# 本地开发档默认 debug；这里给的是「未激活 dev」时的级别，同样可用环境变量调整
+logging:
+  level:
+    com.lion.agent: ${LOG_LEVEL:info}
+    org.springframework.ai.chat.client.advisor: ${AI_LOG_LEVEL:warn}

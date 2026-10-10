@@ -1,77 +1,37 @@
-# ==================== 开发环境 ====================
+# ============================================================
+# 本地开发档（application.yml 默认激活本文件）
+#
+# 定位：只放「本地开发才需要」的增强项，且不掺 -dev 分支才有效的东西。
+# 原则：这里每一项都必须能被环境变量覆盖，容器环境即使误激活也不会失控
+#       （见 docker-compose.yml backend 的 LOG_LEVEL / SPRINGDOC_ENABLED / AI_LOG_PROMPT）。
+#
+# 中间件地址、账号、密钥等「连接类」配置不放这里，统一在 application.yml 里用
+# ${环境变量:默认值} 声明，本地改 .env 或环境变量即可，避免两个文件互相打架。
+# ============================================================
+
 spring:
-  # ==================== 数据源 ====================
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${DB_URL:jdbc:mysql://localhost:3306/lion_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
-    username: ${DB_USERNAME:xxkfz}
-    password: ${DB_PASSWORD:xxkfz}
-
-  # ==================== Redis：Redisson（读取 spring.data.redis 自动构建连接，连接池由 Redisson 自管） ====================
-  data:
-    redis:
-      host: 127.0.0.1
-      port: 6379
-      database: 0
-      password: ${REDIS_PASSWORD:123456}
-      timeout: 10s
-
-  # ==================== Spring AI：接入千问（DashScope OpenAI 兼容接口） ====================
   ai:
-    openai:
-      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      # 通义千问 API Key：https://dashscope.console.aliyun.com/ 获取，通过环境变量或 .env 注入，禁止硬编码
-      api-key: ${QWEN_API_KEY:}
-      chat:
-        model: qwen3.8-max
-        temperature: 0.1
-      # 文本向量化模型（DashScope text-embedding-v3 默认输出 1024 维，需与 Milvus embedding-dimension 一致）
-      # 注意：必须放在 spring.ai.openai.embedding 下，放错位置会回退到默认模型 text-embedding-ada-002
-      embedding:
-        model: text-embedding-v3
+    # 本地开发打印大模型请求/响应，便于排查 Advisor 链路
     chat:
       observations:
-        log-completion: true
-        log-prompt: true
-      memory:
-        repository:
-          jdbc:
-            initialize-schema: always # 自动创建表
+        log-completion: ${AI_LOG_PROMPT:true}
+        log-prompt: ${AI_LOG_PROMPT:true}
 
-    # ==================== 向量数据库：Milvus ====================
-    vectorstore:
-      milvus:
-        client:
-          # dev 默认连公网测试实例，可通过环境变量 / .env 覆盖
-          host: ${MILVUS_HOST:127.0.0.1}
-          port: ${MILVUS_PORT:19530}
-        database-name: ${MILVUS_DATABASE:default}
-        # 默认 VectorStore Bean
-        collection-name:  ${MILVUS_COLLECTION:lion_base_docs}
-        embedding-dimension: 1024
-#        metric-type: COSINE
-#        index-type: HNSW
-        # 2.x 默认 false，需显式开启以自动建库建集合
-        initialize-schema: true
-
-# ==================== SpringDoc + Knife4j ====================
+# ==================== 接口文档 UI（本地开发档增强） ====================
 springdoc:
   api-docs:
-    enabled: true
-    path: /v3/api-docs
+    enabled: ${SPRINGDOC_ENABLED:true}
   swagger-ui:
-    enabled: true
-    # path: /swagger-ui.html  # 删掉这一行！新版本不要配置
+    enabled: ${SPRINGDOC_ENABLED:true}
     tags-sorter: alpha
     operations-sorter: alpha
     persistAuthorization: true
   # 扫描范围必须覆盖所有放 @RestController 的包，否则对应接口不会出现在文档中
   packages-to-scan: com.lion.agent
 
+# ==================== 日志（本地开 debug） ====================
 logging:
   level:
-    com.lion.agent: debug
-    # SimpleLoggerAdvisor 默认用 debug 级别打印请求/响应日志
-#    org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor: debug
-    org.springframework.ai.chat.client.advisor: DEBUG
-
+    com.lion.agent: ${LOG_LEVEL:debug}
+    # SimpleLoggerAdvisor 与 Advisor 链路的请求/响应日志
+    org.springframework.ai.chat.client.advisor: ${AI_LOG_LEVEL:debug}

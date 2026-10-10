@@ -146,7 +146,8 @@ lion-agent/
 │   ├── utils/              # LangfuseIngestClient（原生摄取+评分）/ DashScopeRerankUtils / MilvusQueryUtils
 │   └── vo/                 # 返回视图对象
 ├── src/main/resources/
-│   ├── application*.yml    # 按环境拆分（dev / prod），敏感项走环境变量
+│   ├── application.yml     # 公共配置：框架 + 业务参数 + 中间件连接默认值（环境变量覆盖）
+│   ├── application-dev.yml # 本地开发档：debug 日志 / Swagger UI / AI 观测（默认激活）
 │   ├── db/init.sql         # 建库建表 + 内置技能种子数据
 │   └── prompts/*.st        # 提示词模板（意图识别 / 记忆抽取 / 改写 / 重排 / 门控 等）
 ├── frontend/               # Vue 3 前端（views / components / api / router）
@@ -154,7 +155,7 @@ lion-agent/
 │   ├── src/components/     # UserProfileModal / ConfirmDialog / InputDialog / PaginationBar
 │   └── src/api/            # auth / chat / knowledge / memory / skill / token-usage
 ├── docs/images/            # README 效果图（截图存放目录）
-├── docker-compose.yml      # MySQL / Redis / etcd / MinIO / Milvus / Attu 一键编排
+├── docker-compose.yml      # MySQL / Redis / etcd / Milvus / Attu 一键编排
 ├── start-frontend.bat      # Windows 前端一键启动脚本
 ├── .env / .env.example     # 本地敏感配置（.env 不提交）
 └── pom.xml
@@ -176,9 +177,9 @@ cp .env.example .env
 # 必填：QWEN_API_KEY（通义千问）；DB_USERNAME / DB_PASSWORD / REDIS_PASSWORD 等见 .env.example
 # 若中间件跑在 Docker 里（方案 A），MILVUS_HOST 等保持 localhost 即可
 
-# 4. 启动后端（默认激活 dev 环境）
+# 4. 启动后端（默认激活 dev 本地开发档）
 mvn spring-boot:run
-# 或指定环境：mvn spring-boot:run -Dspring-boot.run.profiles=prod
+# 不加载 dev 档（只用 application.yml 公共配置）：mvn spring-boot:run -Dspring-boot.run.profiles=default
 
 # 5. 启动前端
 cd frontend && npm install && npm run dev
@@ -189,7 +190,7 @@ cd frontend && npm install && npm run dev
 
 ## 中间件环境准备（手动部署 / Docker Compose）
 
-Lion Agent 依赖 MySQL、Redis、Milvus 三类核心中间件（Milvus 自身依赖 etcd + MinIO 做元数据和对象存储）。提供两种部署方式，任选其一即可：
+Lion Agent 依赖 MySQL、Redis、Milvus 三类核心中间件（Milvus standalone 自身依赖 etcd 做元数据存储，Compose 部署下用容器内本地磁盘做对象存储）。提供两种部署方式，任选其一即可：
 
 - **推荐**：`docker compose up -d` 一键启动本章节「方式二」中的全部容器。
 - **手动部署**：已有现成中间件或想自定义安装，参考「方式一」。
@@ -200,9 +201,10 @@ Lion Agent 依赖 MySQL、Redis、Milvus 三类核心中间件（Milvus 自身�
 | --- | --- | --- | --- |
 | MySQL | 8.0+ | 3306 | 业务数据：会话、消息、会话摘要、知识库与文档元数据 |
 | Redis | 6.0+（建议 7.x） | 6379 | Sa-Token 会话、语义缓存、异步任务队列（`document:process`） |
-| Milvus | **2.4.x**（须与 yml 索引/维度一致） | 19530（gRPC）/ 9091（健康检查） | 知识库 RAG 向量检索 + 语义缓存向量存储 |
-| MinIO | 与 Milvus 配套版本 | 9000 / 9001 | Milvus 底层对象存储（standalone 依赖） |
+| Milvus | **2.6.x**（须与 Spring AI 的 milvus-sdk 大版本一致，且与 yml 索引/维度一致） | 19530（gRPC）/ 9091（健康检查） | 知识库 RAG 向量检索 + 语义缓存向量存储 |
 | etcd | v3.5+ | 内部（2379） | Milvus 元数据存储（standalone 依赖） |
+
+> 说明：Compose 部署时 Milvus 使用容器内本地存储（`COMMON_STORAGETYPE=local`，官方单机脚本同款方案），无需单独安装 MinIO；若你手动部署 Milvus 且打算集群化，再自行补 MinIO/S3。
 
 ### 方式一：手动部署
 
@@ -231,7 +233,7 @@ mysql -uxxkfz -p lion_agent < src/main/resources/db/init.sql
 
 #### Milvus 向量数据库
 
-- **架构**：Milvus standalone 依赖 etcd（元数据）+ MinIO（对象存储）两个进程，`docker-compose.yml` 已按官方架构拆分部署。
+- **架构**：Milvus standalone 依赖 etcd（元数据）+ 对象存储。Compose 部署使用容器内本地存储（`COMMON_STORAGETYPE=local`）；手动部署时如需独立对象存储，可另装 MinIO 并在 Milvus 配置中指定。
 - **集合（collection）与维度对齐（关键）**：
   - `lion_agent_knowledge`（dev 默认 `lion_base_docs`）：知识库文档向量，**1024 维，COSINE 度量**——必须与 DashScope `text-embedding-v3` 输出维度一致；默认 collection 名可通过 yml `lion.knowledge.collection-name` 覆盖。
   - `lion_agent_qa_cache`：语义缓存专用集合（yml `lion.qa-cache.collection-name`），与知识库物理隔离。
@@ -254,7 +256,7 @@ curl http://localhost:9091/healthz   # 期望 OK
 
 ### 方式二：Docker Compose 一键部署（推荐）
 
-项目根目录提供 `docker-compose.yml`，一键编排全部基础设施（MySQL / Redis / etcd / MinIO / Milvus / Attu，即上述中间件的容器化等价方案）。
+项目根目录提供 `docker-compose.yml`，一键编排全部基础设施（MySQL / Redis / etcd / Milvus / Attu，即上述中间件的容器化等价方案）。
 
 #### 前置环境条件
 
@@ -264,17 +266,16 @@ curl http://localhost:9091/healthz   # 期望 OK
 | Docker Compose | v2 | `docker compose version` 查看 |
 | 端口 | 见下表 | 启动前确认未被占用 |
 
-启动前确认以下端口未被占用：`3306`(MySQL)、`6379`(Redis)、`19530/9091`(Milvus)、`9000/9001`(MinIO)、`8000`(Attu)。
+启动前确认以下端口未被占用：`3307`(MySQL 宿主端口，容器内仍是 3306)、`6379`(Redis)、`19530/9091`(Milvus)、`8000`(Attu)。
 
 #### 服务清单
 
 | 服务 | 镜像 | 对外端口 | 说明 |
 | --- | --- | --- | --- |
-| `mysql` | mysql:8.0 | 3306 | 业务库 `lion_agent`，首次启动自动执行 `init.sql` 建表 |
+| `mysql` | mysql:8.0 | 3307 → 3306 | 业务库 `lion_agent`，首次启动自动执行 `init.sql` 建表；宿主端口 3307 是为避开本机 3306，容器内应用用 `mysql:3306` |
 | `redis` | redis:7.4-alpine | 6379 | 会话 / 缓存 / 异步任务队列，AOF 持久化 |
 | `etcd` | quay.io/coreos/etcd:v3.5.5 | —（内部） | Milvus 元数据存储 |
-| `minio` | minio/minio | 9000/9001 | Milvus 对象存储，控制台 `http://localhost:9001`（minioadmin/minioadmin） |
-| `milvus-standalone` | milvusdb/milvus:v2.4.17 | 19530/9091 | 向量库，`19530` 为应用连接端口，`9091` 健康检查 |
+| `milvus-standalone` | milvusdb/milvus:v2.6.0 | 19530/9091 | 向量库，`19530` 为应用连接端口，`9091` 健康检查；对象存储用容器内本地磁盘（`COMMON_STORAGETYPE=local`），不依赖 MinIO |
 | `attu` | zilliz/attu:latest | 8000 | Milvus Web 管理台（可选），`http://localhost:8000` |
 
 #### 启动与停止
@@ -291,9 +292,9 @@ docker compose down -v            # 停止并删除全部数据卷（慎用，�
 
 #### 数据持久化与初始化
 
-- 数据保存在命名卷：`mysql-data`、`redis-data`、`etcd-data`、`minio-data`、`milvus-data`，`docker compose down` 不丢失。
+- 数据保存在命名卷：`mysql-data`、`redis-data`、`etcd-data`、`milvus-data`，`docker compose down` 不丢失。
 - MySQL 首次启动会挂载 `src/main/resources/db/init.sql` 到容器初始化目录自动建库建表；如需重建，先 `docker compose down -v` 清卷再 `up -d`。
-- 镜像版本说明：Milvus 需与 `application*.yml` 中 `embedding-dimension: 1024`、索引类型一致；本项目已使用 Milvus 2.4（AUTOINDEX / COSINE），升级大版本前请先验证兼容性。
+- 镜像版本说明：Milvus 服务端需与 Spring AI 的 milvus-sdk-java 大版本一致（当前 2.6.x），并保持 `application*.yml` 中 `embedding-dimension: 1024`、索引类型（AUTOINDEX / COSINE）不变；升级大版本前请先验证兼容性。
 
 ### 应用连接配置
 
@@ -305,9 +306,21 @@ MILVUS_PORT=19530
 # DB_URL 默认即 localhost:3306，无需改动
 ```
 
-### 应用容器化（可选，暂未提供）
+### 应用容器化
 
-当前 Compose 只编排**中间件**，应用仍在本机以 `mvn spring-boot:run` 运行。如需将后端/前端一并容器化部署（`Dockerfile` + Compose service），请基于 `application-prod.yml`（全部走环境变量）扩展，并将 Compose 网络接入本编排。
+Compose 已内置 `backend` / `frontend` 两个服务（属 `app` profile），一键拉起「中间件 + 应用」：
+
+```bash
+mvn -B clean package -DskipTests           # 先打包（镜像内不编译）
+docker compose --profile app up -d --build # 构建并启动中间件 + 应用
+docker compose logs -f backend             # 看后端启动日志
+```
+
+- 后端镜像：根目录 `Dockerfile`（只含 JRE；**镜像内不编译**，直接拷入本机已打好的 `target/*.jar`，构建前先执行 `mvn -B clean package -DskipTests`）
+- 前端镜像：`frontend/Dockerfile`（Vite 构建静态资源 + Nginx 反代 `/api` 到 backend）
+- 容器内中间件一律走服务名（`mysql` / `redis` / `milvus-standalone`），无需改 yml
+- dev 档的调试增强已在 compose 里用环境变量关成生产行为：`LOG_LEVEL=info`、`AI_LOG_LEVEL=warn`、`AI_LOG_PROMPT=false`、`SPRINGDOC_ENABLED=false`
+- 想彻底不加载 `application-dev.yml`，在 compose 的 backend 里加一行 `SPRING_PROFILES_ACTIVE: default`
 
 ## 配置管理
 

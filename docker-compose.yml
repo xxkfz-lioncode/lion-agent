@@ -1,28 +1,26 @@
 # ============================================================
-# Lion Agent 基础设施编排（MySQL / Redis / Milvus 向量库）
+# Lion Agent 编排：中间件（MySQL / Redis / Milvus）+ 应用（backend / frontend）
 #
 # 用法：
-#   docker compose up -d          # 启动全部中间件（backend / frontend 属于 app profile，不会启动）
-#   docker compose up -d mysql redis milvus-standalone   # 只启动需要的
+#   docker compose up -d                       # 只起中间件（backend/frontend 属 app profile）
+#   docker compose --profile app up -d --build # 中间件 + 应用一起构建启动
+#   docker compose ps / logs -f backend / down [-v]
 #
-#   应用镜像（后端 Dockerfile 在根目录，前端在 frontend/）：
-#   docker build -t lion-agent-backend:1.0.0 .
-#   docker build -t lion-agent-frontend:1.0.0 ./frontend
-#   docker compose --profile app up -d --build   # 中间件 + 应用一起构建启动
-#   docker compose --profile app ps              # 查看状态
+# 配置分工：
+#   application.yml      公共配置（连接地址/密钥全部用环境变量，带默认值）
+#   application-dev.yml  本地开发档（debug 日志、Swagger UI、AI 观测）
+#   容器内默认仍会激活 dev，但下面 backend 已把这几项用环境变量关成「生产行为」，
+#   想彻底不加载 dev 档则再加一行：SPRING_PROFILES_ACTIVE: default
 #
-#   docker compose ps             # 查看状态
-#   docker compose down           # 停止（保留数据卷）
-#   docker compose down -v        # 停止并删除数据卷（慎用，会清数据）
+# 敏感值来源：宿主机项目根目录的 .env
+#   ① backend 用 env_file 全量注入容器（文件本身不进镜像，改密钥只需 recreate 容器）
+#   ② mysql / redis 的 ${VAR:-默认} 由 Compose 自身的 dotenv 插值（同样读根目录 .env）
+#   ③ 容器环境变量 > Spring import 的 .env 文件 > application*.yml 默认值
+# 数据持久化在命名卷：mysql-data / redis-data / etcd-data / milvus-data / upload-data
+# （minio 已移除，Milvus 改用容器内本地存储，见 milvus-standalone 的 COMMON_STORAGETYPE）
 #
-# 说明：
-#   - 密码等敏感值从项目根目录 .env 读取（与 Spring 共用一份），
-#     未设置时使用下列默认值，与本项目 .env 保持一致。
-#   - 应用连接本机中间件时，把 .env 中对应地址改为 localhost：
-#       DB_URL      -> jdbc:mysql://localhost:3306/lion_agent?...（默认即 localhost，无需改）
-#       REDIS_HOST  -> localhost（prod 配置默认 127.0.0.1）
-#       MILVUS_HOST -> localhost（当前 .env 里是远程测试实例 118.25.109.72，需改为 localhost）
-#   - 数据持久化在命名卷：mysql-data / redis-data / etcd-data / minio-data / milvus-data
+# 端口安全提示：3307(MySQL 宿主端口) / 6379 仅本地开发需要暴露；
+# 上生产请删掉对应 ports，只保留 frontend 的 80（或反代后端 8080）。
 # ============================================================
 
 name: lion-agent
@@ -40,7 +38,9 @@ services:
       MYSQL_USER: ${DB_USERNAME:-xxkfz}
       MYSQL_PASSWORD: ${DB_PASSWORD:-xxkfz}
     ports:
-      - "3306:3306"
+      # 宿主 3307 -> 容器 3306：避免与本机已安装的 MySQL(3306) 冲突。
+      # 容器内应用仍走服务名 + 内部端口：jdbc:mysql://mysql:3306/...
+      - "3307:3306"
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -90,30 +90,17 @@ services:
       timeout: 20s
       retries: 3
 
-  # ---------------- minio（Milvus 对象存储，内部服务） ----------------
-  minio:
-    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
-    container_name: lion-minio
-    restart: unless-stopped
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - minio-data:/minio_data
-    command: minio server /minio_data
-    # 控制台 Web UI（可选）：http://localhost:9001  minioadmin/minioadmin
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+  # ---------------- minio 已移除 ----------------
+  # 原因：国内各镜像源均拉不到 minio/minio（阿里云加速器对该仓库 403）。
+  # 方案：milvus-standalone 改用容器内本地磁盘存储（COMMON_STORAGETYPE=local），
+  #       这是 Milvus 官方单机脚本 standalone_embed.sh 的标准跑法，单机开发完全够用。
+  #       以后若能拉到 minio/S3 镜像，可恢复远端对象存储。
 
   # ---------------- Milvus standalone（向量数据库） ----------------
   milvus-standalone:
-    image: milvusdb/milvus:v2.4.17
+    # 必须与 Spring AI 的 milvus-sdk-java 大版本对齐（当前 SDK 2.6.x → 服务端 2.6.x），
+    # 否则建索引报 "only metric type can be passed when using AutoIndex"
+    image: milvusdb/milvus:v2.6.0
     container_name: lion-milvus
     restart: unless-stopped
     command: ["milvus", "run", "standalone"]
@@ -121,9 +108,8 @@ services:
       - seccomp:unconfined
     environment:
       ETCD_ENDPOINTS: etcd:2379
-      MINIO_ADDRESS: minio:9000
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      # 对象存储改用容器内本地磁盘（不再依赖 minio）；数据落在下方 milvus-data 卷
+      COMMON_STORAGETYPE: local
     volumes:
       - milvus-data:/var/lib/milvus
     # 19530：gRPC 客户端端口（应用连接）；9091：健康检查与内部指标
@@ -132,8 +118,6 @@ services:
       - "9091:9091"
     depends_on:
       etcd:
-        condition: service_healthy
-      minio:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
@@ -156,32 +140,50 @@ services:
         condition: service_healthy
 
   # ---------------- 后端应用（Spring Boot，镜像由根目录 Dockerfile 构建） ----------------
-  # 属于 app profile：docker compose --profile app up -d --build
   backend:
     profiles: ["app"]
     image: lion-agent-backend:1.0.0
     container_name: lion-backend
     restart: unless-stopped
+    # 镜像内不做编译：先本机 mvn -B clean package -DskipTests 打好 target/*.jar，再构建镜像
     build:
       context: .
       dockerfile: Dockerfile
+    # 敏感/业务配置统一从宿主机项目根目录的 .env 注入为容器环境变量（全量注入，不用逐条列举）。
+    # 注意：.env 只在此处被「注入」，不会被 COPY 进镜像（.dockerignore 已排除），改密钥无需重新 build。
+    # 若部署机没有 .env，请复制 .env.example 填值；想让它「可选」可改写成 map 语法：
+    #   env_file:
+    #     - path: .env
+    #       required: false   # 需 Docker Compose 2.24+
+    env_file:
+      - .env
     environment:
       TZ: Asia/Shanghai
-      SPRING_PROFILES_ACTIVE: prod
-      # 容器内通过服务名访问中间件（不要写 localhost）
+      # 以下为容器专属值，优先级高于 env_file，会覆盖 .env 里的 localhost 地址
       DB_URL: jdbc:mysql://mysql:3306/lion_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       DB_USERNAME: ${DB_USERNAME:-xxkfz}
       DB_PASSWORD: ${DB_PASSWORD:-xxkfz}
       REDIS_HOST: redis
+      REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-123456}
       MILVUS_HOST: milvus-standalone
       MILVUS_PORT: 19530
+      # 必须与 knowledge 写入侧一致（application.yml 两侧都读 MILVUS_COLLECTION）
+      MILVUS_COLLECTION: ${MILVUS_COLLECTION:-lion_agent_knowledge}
       LION_UPLOAD_PATH: /app/upload/
-      # 千问密钥等从项目根目录 .env 注入（未设置时为空，启动会缺 key）
+      # 千问密钥等从项目根目录 .env 注入（未设置时为空，调模型会报鉴权失败）
       QWEN_API_KEY: ${QWEN_API_KEY:-}
       QWEN_BASE_URL: ${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       QWEN_MODEL: ${QWEN_MODEL:-qwen3.8-max}
       QWEN_EMBEDDING_MODEL: ${QWEN_EMBEDDING_MODEL:-text-embedding-v3}
+      QWEN_TEMPERATURE: ${QWEN_TEMPERATURE:-0.1}
+      # Rerank 等专用接口默认回退 QWEN_API_KEY，这里显式透传便于分账号
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      # 关掉 dev 档的调试增强，容器行为对齐生产
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      AI_LOG_LEVEL: ${AI_LOG_LEVEL:-warn}
+      AI_LOG_PROMPT: ${AI_LOG_PROMPT:-false}
+      SPRINGDOC_ENABLED: ${SPRINGDOC_ENABLED:-false}
     ports:
       - "8080:8080"
     volumes:
@@ -193,6 +195,13 @@ services:
         condition: service_healthy
       milvus-standalone:
         condition: service_healthy
+    healthcheck:
+      # 与镜像内一致：端口探活，不依赖 curl/wget
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8080' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
 
   # ---------------- 前端应用（Nginx 托管 dist，反代 /api 到 backend） ----------------
   frontend:
@@ -211,12 +220,12 @@ services:
       # 宿主 80 -> 容器 80；若宿主 80 被占用改成 "8081:80"
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   mysql-data:
   redis-data:
   etcd-data:
-  minio-data:
   milvus-data:
   upload-data:
