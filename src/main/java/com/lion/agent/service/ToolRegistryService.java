@@ -75,7 +75,7 @@ public class ToolRegistryService {
     private static final List<Class<?>> ALWAYS_ON_TOOLS = List.of(DatabaseTools.class, DateTools.class, TimeLimiterTools.class);
 
     /** 可检索工具池：参与向量预筛的工具（新工具写完类在这里登记一行，索引和筛选全自动） */
-    private static final List<Class<?>> RETRIEVABLE_TOOLS = List.of(StarFortuneTools.class, WebSearchTools.class, HtmlFileTools.class, TerminalTools.class);
+    private static final List<Class<?>> RETRIEVABLE_TOOLS = List.of(StarFortuneTools.class, WebSearchTools.class, HtmlFileTools.class, TerminalTools.class, ResourceDownloadTools.class);
 
     /** 联网搜索工具名：时效性问题强制补位用（见 {@link #needsWebSearch}） */
     private static final List<String> WEB_SEARCH_TOOL_NAMES = List.of("webSearch", "webExtract");
