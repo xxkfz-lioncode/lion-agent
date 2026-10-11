@@ -165,6 +165,10 @@ spring:
         embedding-dimension: 1024
         metric-type: COSINE
         index-type: AUTOINDEX
+        # 关键：Spring AI 默认 index-parameters 是 {"nlist":1024}（IVF_FLAT 专用参数），
+        # 而 AUTOINDEX 只允许传 metric type、禁止任何额外参数，不显式置空会报
+        # "only metric type can be passed when use AutoIndex"（建索引失败 → 应用起不来）
+        index-parameters: "{}"
         # 2.x 默认 false，需显式开启以自动建库建集合
         initialize-schema: true
 
