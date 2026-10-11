@@ -145,7 +145,7 @@
       </div>
 
       <div class="page-content">
-        <router-view />
+        <router-view :key="route.path" />
       </div>
     </main>
 
@@ -324,6 +324,7 @@ const menuTree = [
     title: '知识库',
     icon: '📚',
     children: [
+      { path: '/knowledge/chat', title: '知识库对话', icon: '💬' },
       { path: '/knowledge/manage', title: '知识库管理', icon: '🛠️' },
       { path: '/knowledge/upload', title: '知识库上传', icon: '📤' }
     ]

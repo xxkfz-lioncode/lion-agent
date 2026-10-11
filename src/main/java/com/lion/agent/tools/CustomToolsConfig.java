@@ -49,7 +49,7 @@ public class CustomToolsConfig {
      *
      * <p>构建分两步：
      * <ol>
-     *   <li><b>定义元信息</b>（{@link ToolDefinition.Builder}）：name 全局唯一、description
+     *   <li><b>定义元信息</b>（{@link ToolDefinition}）：name 全局唯一、description
      *       供模型判断何时调用、inputSchema 声明参数结构（必填，否则启动报错）；</li>
      *   <li><b>绑定执行体</b>（{@link MethodToolCallback.Builder}）：把定义 + 方法 + 目标对象
      *       组装成可执行回调，调用时按 inputSchema 解析模型传入的 JSON，反射执行方法。</li>
@@ -59,26 +59,44 @@ public class CustomToolsConfig {
      */
     @Bean
     public ToolCallback weatherTool() {
-        // 反射定位业务方法：两个 String 参数，与下方 inputSchema 的 properties 一一对应
+        // 反射定位业务方法：三个 String 参数（city / date / unit），必须与下方 inputSchema 的 properties 一一对应
         Method method = ReflectionUtils.findMethod(WeatherToolService.class,
-                "queryWeatherByCity", String.class, String.class);
+                "queryWeatherByCity", String.class, String.class, String.class);
         if (method == null) {
-            throw new RuntimeException("WeatherService.queryWeatherByCity 方法不存在");
+            throw new RuntimeException("WeatherToolService.queryWeatherByCity 方法不存在");
         }
 
         // 1. 工具元信息：inputSchema 用 JSON Schema 描述参数结构（类型/枚举/必填），
         //    模型据此生成入参 JSON；缺省会直接启动失败
+        //    date 为可选参数（留空=今天），因此不进 required，但仍是 properties 的一项
         ToolDefinition definition = ToolDefinition.builder()
                 .name("queryWeatherByCity")  // 模型看到的工具名，同一 ChatClient 内不可重名
-                .description("查询指定城市的气温，可指定摄氏度(C)或华氏度(F)")
+                .description("Query the weather of a city and get its condition (sunny, cloudy, rain, thunderstorm, ...) "
+                        + "plus the high and low temperature for a requested day. "
+                        + "Use it whenever the user asks about the weather of a city, e.g. \"北京天气怎么样\", \"明天上海热不热\", \"杭州会不会下雨\". "
+                        + "Leave 'date' empty for today, or pass the day the user cares about. "
+                        + "The response is a multi-line report for whatever city name is provided, or an explicit error message when the city is missing. "
+                        + "Important: the answer comes from a small mock table, not a real forecast - always tell the user it is demo data.")
                 .inputSchema("""
                         {
                           "type": "object",
                           "properties": {
-                            "city": { "type": "string", "description": "城市名称，例如：北京" },
-                            "unit": { "type": "string", "description": "温度单位", "enum": ["C", "F"] }
+                            "city": {
+                              "type": "string",
+                              "description": "City name in Chinese, e.g. \\"北京\\" or \\"北京市\\". Supported cities: 北京、上海、广州、深圳、杭州、成都、西安、武汉、重庆、南京"
+                            },
+                            "date": {
+                              "type": "string",
+                              "description": "The day the user cares about, preferably in yyyy-MM-dd format (e.g. \\"2026-10-15\\"). Leave it empty or omit it for today."
+                            },
+                            "unit": {
+                              "type": "string",
+                              "description": "Temperature unit: \\"C\\" for Celsius (default), \\"F\\" for Fahrenheit",
+                              "enum": ["C", "F"],
+                              "default": "C"
+                            }
                           },
-                          "required": ["city", "unit"]
+                          "required": ["city"]
                         }
                         """)
                 .build();

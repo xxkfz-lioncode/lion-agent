@@ -35,11 +35,13 @@ CREATE TABLE chat_conversation (
     id         BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     user_id    BIGINT       NOT NULL COMMENT '所属用户 ID',
     title      VARCHAR(128) NOT NULL DEFAULT '新对话' COMMENT '会话标题',
+    chat_type  VARCHAR(16)  NOT NULL DEFAULT 'chat' COMMENT '会话类型：chat-普通对话 kb-知识库问答',
     created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     deleted    TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除 1-已删除',
     PRIMARY KEY (id),
-    KEY idx_user_id (user_id)
+    KEY idx_user_id (user_id),
+    KEY idx_user_type (user_id, chat_type)
 ) ENGINE = InnoDB COMMENT ='对话会话表';
 
 -- ---------------------------------------------------------------------

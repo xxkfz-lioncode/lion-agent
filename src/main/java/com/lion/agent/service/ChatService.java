@@ -37,8 +37,10 @@ public interface ChatService {
 
     /**
      * 获取当前用户的会话列表
+     *
+     * @param chatType 会话类型（chat-普通对话 / kb-知识库问答）；为空不过滤（返回全部）
      */
-    PageResult<Conversation> listConversations(int pageNum, int pageSize, String keyword);
+    PageResult<Conversation> listConversations(int pageNum, int pageSize, String keyword, String chatType);
 
     /**
      * 获取会话详情（消息列表）
@@ -51,9 +53,11 @@ public interface ChatService {
     void deleteConversation(Long conversationId);
 
     /**
-     * 清空当前用户的所有会话
+     * 清空当前用户的会话
+     *
+     * @param chatType 会话类型（chat-普通对话 / kb-知识库问答）；为空清空全部类型
      */
-    void clearAllConversations();
+    void clearAllConversations(String chatType);
 
     /**
      * 重命名会话

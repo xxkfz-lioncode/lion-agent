@@ -224,6 +224,19 @@ lion:
     path: ${LION_UPLOAD_PATH:upload/}
     # 允许上传的文件类型（MIME）
     allowed-types: text/plain,text/markdown,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document
+  # HTML 文件生成工具（HtmlFileTools）
+  tools:
+    html:
+      # 落盘目录，默认工作目录下的 upload/html/（已由 WebConfig 静态映射到 /upload/**，写进去即可访问）
+      dir: ${LION_HTML_DIR:upload/html/}
+      # 浏览器访问前缀，需与上面的目录对应
+      url-prefix: ${LION_HTML_URL_PREFIX:/upload/html/}
+    # 终端命令工具（TerminalTools）
+    terminal:
+      # 命令可执行的根目录（围栏）：留空=项目工作目录，命令不能逃出该目录
+      work-dir: ${LION_TERMINAL_WORK_DIR:}
+      # 执行日志落盘目录：每次调用（含超时、被拒绝）写一个 .log 文件，便于事后审计/排错
+      log-dir: ${LION_TERMINAL_LOG_DIR:logs/terminal/}
 
   # 文档切分策略参数（未配置的项走代码内默认值）
   splitter:

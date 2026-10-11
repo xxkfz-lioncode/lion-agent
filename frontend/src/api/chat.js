@@ -6,25 +6,21 @@ export function sendMessage(data) {
 }
 
 /**
- * 流式发送消息（SSE）
- * @param {Object} params
- * @param {number|null} params.conversationId 会话 ID
- * @param {string} params.message 用户消息
- * @param {number|null} [params.knowledgeId] 可选：指定知识库（不传则检索用户全部知识库）
- * @param {Function} [params.onStart] 收到 start 事件（含 conversationId）
- * @param {Function} [params.onMessage] 收到内容片段 { content }
- * @param {Function} [params.onDone] 收到 done 事件（含 assistantMessageId、referencedChunks）
+ * 建立 SSE 连接并按事件回调（普通对话与知识库对话共用，仅 URL / 请求体不同）
+ * @param {string} url 接口地址（不含 /api 前缀）
+ * @param {Object} body 请求体
+ * @param {Object} handlers onStart / onMessage / onDone
  */
-export async function streamChat({ conversationId, message, knowledgeId, onStart, onMessage, onDone }) {
+async function openSseStream(url, body, { onStart, onMessage, onDone }) {
   const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
   const token = localStorage.getItem('token') || ''
-  const res = await fetch(`${baseURL}/chat/stream`, {
+  const res = await fetch(`${baseURL}${url}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: token
     },
-    body: JSON.stringify({ conversationId, message, knowledgeId })
+    body: JSON.stringify(body)
   })
   if (!res.ok || !res.body) {
     throw new Error(`请求失败（HTTP ${res.status}）`)
@@ -70,6 +66,33 @@ export async function streamChat({ conversationId, message, knowledgeId, onStart
 }
 
 /**
+ * 普通对话流式发送消息（SSE）：/api/chat/stream，不检索知识库
+ * @param {Object} params
+ * @param {number|null} params.conversationId 会话 ID
+ * @param {string} params.message 用户消息
+ * @param {Function} [params.onStart] 收到 start 事件（含 conversationId）
+ * @param {Function} [params.onMessage] 收到内容片段 { content }
+ * @param {Function} [params.onDone] 收到 done 事件（含 referencedChunks）
+ */
+export function streamChat({ conversationId, message, onStart, onMessage, onDone }) {
+  return openSseStream('/chat/stream', { conversationId, message }, { onStart, onMessage, onDone })
+}
+
+/**
+ * 知识库对话流式发送消息（SSE）：/api/knowledge/chat/stream，固定走知识库检索
+ * @param {Object} params
+ * @param {number|null} params.conversationId 会话 ID
+ * @param {string} params.message 用户消息
+ * @param {number|null} [params.knowledgeId] 指定知识库（不传则检索用户全部知识库）
+ * @param {Function} [params.onStart] 收到 start 事件（含 conversationId）
+ * @param {Function} [params.onMessage] 收到内容片段 { content }
+ * @param {Function} [params.onDone] 收到 done 事件（含 referencedChunks 引用来源）
+ */
+export function streamKnowledgeChat({ conversationId, message, knowledgeId, onStart, onMessage, onDone }) {
+  return openSseStream('/knowledge/chat/stream', { conversationId, message, knowledgeId }, { onStart, onMessage, onDone })
+}
+
+/**
  * 多模态对话（图片 + 文字，multipart/form-data，非流式）
  * @param {Object} params
  * @param {string} params.message 文本内容
@@ -105,9 +128,9 @@ export function deleteConversation(conversationId) {
   return request.delete(`/conversations/${conversationId}`)
 }
 
-/** 清空当前用户的所有会话 */
-export function clearAllConversations() {
-  return request.delete('/conversations/all')
+/** 清空当前用户的会话（chatType：chat-普通对话 / kb-知识库问答，不传清空全部） */
+export function clearAllConversations(chatType) {
+  return request.delete('/conversations/all', { params: chatType ? { chatType } : {} })
 }
 
 /** 重命名会话 */

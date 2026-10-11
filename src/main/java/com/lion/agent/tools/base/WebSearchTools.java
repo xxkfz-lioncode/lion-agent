@@ -1,5 +1,6 @@
 package com.lion.agent.tools.base;
 
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONArray;
@@ -43,6 +44,14 @@ import java.util.Set;
  *       熔断打开后由 fallback 返回降级文案，让模型基于已有知识继续作答。</li>
  *   <li>显式设置连接超时与读取超时：Hutool 底层 HttpURLConnection 默认无超时，不设会把业务线程拖死。</li>
  *   <li>返回给模型的内容做两级截断（单条摘要 + 总长度），防止长网页把上下文撑爆。</li>
+ * </ul>
+ *
+ * <p>契约说明（面向大模型而非人类开发者）：
+ * <ul>
+ *   <li>{@link Tool} / {@link ToolParam} 的 description 统一英文：它是模型判断"要不要调用、怎么传参"的唯一依据，
+ *       需要写清能力、适用场景、反例（什么时候不要用）、返回结构与引用要求。</li>
+ *   <li>次要参数（topic / timeRange / maxResults）容错优于报错：非法值回退默认或截断，不让一次笔误废掉整次调用；
+ *       只有查询词缺失、URL 非法、SSRF 命中这类无法安全继续的情况才返回错误。</li>
  * </ul>
  */
 @Slf4j
@@ -131,45 +140,37 @@ public class WebSearchTools {
      * @param timeRange  时间范围：day / week / month / year，询问"最近/最新"时传入
      * @return 格式化后的搜索结果文本
      */
-    @Tool(description = """
-            联网搜索互联网上的实时信息，返回标题、链接、发布时间和摘要。
-            适用场景：用户询问新闻、最新事件、实时数据（股价/天气/汇率/排行）、近期发布的产品或政策、
-            任何可能发生在我知识截止日期之后的事实，以及需要引用外部网页佐证的问题。
-            不适用：常识、概念解释、代码编写、数学计算、以及对已有知识的总结——这类问题请直接回答，不要调用本工具。
-            """)
+    @Tool(name = "webSearch",
+          description = "Search the live web for up-to-date information. Returns a numbered list of results, "
+                  + "each with its title, URL, publish date when available, and a short snippet. "
+                  + "Use it whenever the answer may have changed after your knowledge cutoff: breaking news, recent events, "
+                  + "newly released products or policies, real-time data such as stock prices, exchange rates, weather, "
+                  + "scores and rankings, or any factual claim that should be backed by an external source. "
+                  + "For recent questions prefer topic=\"news\" and set a timeRange. "
+                  + "Do NOT use it for common knowledge, concept explanations, coding help, math or summarizing what you already know - answer those directly. "
+                  + "Ground your answer strictly in the returned snippets, cite sources by their [n] index and URL, and never fabricate results; "
+                  + "if none of the results answer the question, say so and optionally call webExtract on the most promising URL.")
     @CircuitBreaker(name = "webSearch", fallbackMethod = "searchFallback")
     public String webSearch(
-            @ToolParam(description = "搜索关键词，建议用简洁的中文或英文短语，不要写成完整句子", required = true) String query,
-            @ToolParam(description = "返回结果条数，1 到 20，默认 5", required = false) Integer maxResults,
-            @ToolParam(description = "搜索类别：general 通用、news 新闻、finance 财经，默认 general", required = false) String topic,
-            @ToolParam(description = "时间范围：day 一天内、week 一周内、month 一个月内、year 一年内。仅当用户在意信息时效性时传入，例如「最近一周」「今天」", required = false) String timeRange) {
+            @ToolParam(description = "Search query. Use a few concise keywords in the user's language rather than a full sentence, e.g. \"2026 世界杯 赛程\" or \"nvidia stock price today\".", required = true) String query,
+            @ToolParam(description = "Number of results to return, between 1 and 20 (out-of-range values are clamped). Leave empty to use the server default (5); higher values consume more context, so 3-5 is usually enough for a simple lookup.", required = false) Integer maxResults,
+            @ToolParam(description = "Search category that decides which sources are queried: \"general\" (default, broad web pages), \"news\" (news sites and press coverage, best for current events), \"finance\" (markets, companies and financial data).", required = false) String topic,
+            @ToolParam(description = "Restrict results to a recent window: \"day\", \"week\", \"month\" or \"year\". Set it only when the user cares about recency (最近/最新/今天/this week); leave empty to search all time.", required = false) String timeRange) {
 
-        if (query == null || query.isBlank()) {
+        if (StrUtil.isBlank(query)) {
             return "错误：请提供搜索关键词。";
         }
 
-        String normalizedTopic = "general";
-        if (topic != null && !topic.isBlank()) {
-            normalizedTopic = topic.trim().toLowerCase();
-            if (!VALID_TOPICS.contains(normalizedTopic)) {
-                return "错误：不支持的搜索类别 \"" + topic + "\"。可选：general 通用、news 新闻、finance 财经。";
-            }
-        }
+        // 枚举入参容错：模型笔误只回退该参数，不让整次工具调用失败
+        String normalizedTopic = pickOrDefault(topic, VALID_TOPICS, "general");
+        String normalizedTimeRange = pickOrDefault(timeRange, VALID_TIME_RANGES, "");
 
-        if (timeRange != null && !timeRange.isBlank()) {
-            String normalizedRange = timeRange.trim().toLowerCase();
-            if (!VALID_TIME_RANGES.contains(normalizedRange)) {
-                return "错误：不支持的时间范围 \"" + timeRange + "\"。可选：day、week、month、year。";
-            }
-        }
+        // 条数越界做截断而非报错：这是次要参数，没必要让模型重来一次
+        int size = Math.min(Math.max(maxResults == null ? defaultMaxResults : maxResults, MAX_RESULTS_MIN), MAX_RESULTS_MAX);
 
-        int size = maxResults == null ? defaultMaxResults : maxResults;
-        if (size < MAX_RESULTS_MIN || size > MAX_RESULTS_MAX) {
-            return "错误：返回条数必须在 " + MAX_RESULTS_MIN + " 到 " + MAX_RESULTS_MAX + " 之间。";
-        }
-
-        if (apiKey == null || apiKey.isBlank()) {
-            return "错误：未配置联网搜索服务的 API Key（lion.tavily.api-key），无法执行联网搜索。";
+        if (StrUtil.isBlank(apiKey)) {
+            return "错误：未配置联网搜索服务的 API Key（lion.tavily.api-key），无法执行联网搜索。"
+                    + "请基于你已有的知识回答，并明确告知用户该信息未经联网核实、可能不是最新的。";
         }
 
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -181,8 +182,8 @@ public class WebSearchTools {
         payload.put("include_published_date", true);
         payload.put("include_raw_content", false);
         payload.put("include_images", false);
-        if (timeRange != null && !timeRange.isBlank()) {
-            payload.put("time_range", timeRange.trim().toLowerCase());
+        if (!normalizedTimeRange.isEmpty()) {
+            payload.put("time_range", normalizedTimeRange);
         }
 
         try {
@@ -199,8 +200,27 @@ public class WebSearchTools {
 
     /** 降级方法：网络异常或熔断打开（OPEN）时执行，签名需与 webSearch 一致（同入参 + Throwable） */
     public String searchFallback(String query, Integer maxResults, String topic, String timeRange, Throwable throwable) {
-        log.error("联网搜索触发熔断降级，原因: {}", throwable.getMessage());
-        return "联网搜索服务暂时不可用（" + throwable.getMessage() + "）。请基于你已有的知识回答，并明确告知用户该信息未经联网核实、可能不是最新的。";
+        log.error("联网搜索触发熔断降级，原因: {}", fallbackReason(throwable));
+        return "联网搜索服务暂时不可用（" + fallbackReason(throwable) + "）。请基于你已有的知识回答，"
+                + "并明确告知用户该信息未经联网核实、可能不是最新的。";
+    }
+
+    /** 熔断 OPEN 时 throwable 可能为 null，统一取值避免 NPE */
+    private String fallbackReason(Throwable throwable) {
+        if (throwable == null) {
+            return "熔断器已打开（OPEN）";
+        }
+        String msg = throwable.getMessage();
+        return StrUtil.isBlank(msg) ? throwable.getClass().getSimpleName() : msg;
+    }
+
+    /** 枚举参数取值：命中白名单则返回值本身，否则回退默认值（空串表示"不限制"） */
+    private String pickOrDefault(String value, Set<String> allowed, String fallback) {
+        if (StrUtil.isBlank(value)) {
+            return fallback;
+        }
+        String v = value.trim().toLowerCase();
+        return allowed.contains(v) ? v : fallback;
     }
 
     // ==================== 工具 2：网页正文抓取 ====================
@@ -211,16 +231,19 @@ public class WebSearchTools {
      * @param urls 网页 URL，多个用英文逗号分隔，最多 5 个
      * @return 格式化后的网页正文
      */
-    @Tool(description = """
-            抓取指定网页的正文内容，返回 Markdown 文本。
-            适用场景：用户在对话中直接给出了链接并想了解其内容，或联网搜索后需要深入阅读某个具体页面。
-            不适用：你没有拿到具体 URL 的情况——请改用联网搜索工具。
-            """)
+    @Tool(name = "webExtract",
+          description = "Fetch the main readable content of specific web pages and return it as text. "
+                  + "Use it when the user pastes one or more URLs and asks what they say, or when a web search hit looks relevant "
+                  + "but its snippet is too short to answer the question. "
+                  + "Do NOT use it when you have no concrete URL - call webSearch first to find one. "
+                  + "Input accepts up to 5 full URLs starting with http:// or https://, separated by commas; internal and private "
+                  + "addresses are rejected. Answer only from the returned content, and if a page failed to load, report that failure "
+                  + "instead of guessing what the page contains.")
     @CircuitBreaker(name = "webSearch", fallbackMethod = "extractFallback")
     public String webExtract(
-            @ToolParam(description = "要抓取正文的网页 URL，多个用英文逗号分隔，最多 5 个", required = true) String urls) {
+            @ToolParam(description = "Full web page URLs to read, starting with http:// or https://. Multiple URLs are separated by commas, up to 5 per call, e.g. \"https://example.com/a, https://example.com/b\".", required = true) String urls) {
 
-        if (urls == null || urls.isBlank()) {
+        if (StrUtil.isBlank(urls)) {
             return "错误：请提供要抓取的网页 URL。";
         }
 
@@ -239,7 +262,8 @@ public class WebSearchTools {
         }
 
         for (String u : urlList) {
-            if (!u.toLowerCase().startsWith("http://") && !u.toLowerCase().startsWith("https://")) {
+            String lower = u.toLowerCase();
+            if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
                 return "错误：URL 必须以 http:// 或 https:// 开头：\"" + u + "\"。";
             }
             if (isBlockedHost(u)) {
@@ -248,8 +272,9 @@ public class WebSearchTools {
             }
         }
 
-        if (apiKey == null || apiKey.isBlank()) {
-            return "错误：未配置联网搜索服务的 API Key（lion.tavily.api-key），无法抓取网页。";
+        if (StrUtil.isBlank(apiKey)) {
+            return "错误：未配置联网搜索服务的 API Key（lion.tavily.api-key），无法抓取网页。"
+                    + "请告知用户自行打开链接查看。";
         }
 
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -271,8 +296,9 @@ public class WebSearchTools {
 
     /** 降级方法：网络异常或熔断打开（OPEN）时执行 */
     public String extractFallback(String urls, Throwable throwable) {
-        log.error("网页抓取触发熔断降级，原因: {}", throwable.getMessage());
-        return "网页抓取服务暂时不可用（" + throwable.getMessage() + "）。请告知用户稍后再试，或请用户自行打开链接查看。";
+        log.error("网页抓取触发熔断降级，原因: {}", fallbackReason(throwable));
+        return "网页抓取服务暂时不可用（" + fallbackReason(throwable) + "）。"
+                + "请告知用户稍后再试，或请用户自行打开链接查看。";
     }
 
     // ==================== HTTP 调用 ====================
@@ -349,7 +375,8 @@ public class WebSearchTools {
     private String formatSearchResults(String query, JSONObject root) {
         JSONArray results = root.getJSONArray("results");
         if (results == null || results.isEmpty()) {
-            return "联网搜索未找到与「" + query + "」相关的结果，建议换个关键词重试。";
+            return "联网搜索未找到与「" + query + "」相关的结果，建议换个更宽泛的关键词重试；"
+                    + "或基于你已有的知识回答，并明确告知用户该信息未经联网核实。";
         }
 
         StringBuilder sb = new StringBuilder();
@@ -366,14 +393,15 @@ public class WebSearchTools {
         if (includeAnswer) {
             String answer = root.getStr("answer");
             if (answer != null && !answer.isBlank()) {
-                sb.append("AI 摘要：").append(normalize(answer)).append("\n\n");
+                sb.append("搜索引擎 AI 摘要（仅供参考，需与下方来源交叉核对）：")
+                        .append(normalize(answer)).append("\n\n");
             }
         }
 
         for (int i = 0; i < results.size(); i++) {
             JSONObject item = results.getJSONObject(i);
             String title = str(item, "title");
-            sb.append('[').append(i + 1).append("] ")
+            sb.append('[').append(i + 1).append("] 标题：")
                     .append(title.isEmpty() ? "(无标题)" : truncate(title, 120)).append('\n');
             sb.append("链接：").append(str(item, "url")).append('\n');
             String published = str(item, "published_date");
@@ -403,7 +431,7 @@ public class WebSearchTools {
         if (successCount > 0) {
             for (int i = 0; i < successCount; i++) {
                 JSONObject item = results.getJSONObject(i);
-                sb.append('[').append(i + 1).append("] ").append(str(item, "url")).append('\n');
+                sb.append('[').append(i + 1).append("] 链接：").append(str(item, "url")).append('\n');
                 String content = str(item, "raw_content");
                 sb.append("正文：").append(content.isEmpty() ? "(页面无正文内容)" : truncate(content, EXTRACT_MAX_LENGTH));
                 sb.append("\n\n");
@@ -413,7 +441,7 @@ public class WebSearchTools {
         }
 
         if (failedCount > 0) {
-            sb.append("抓取失败的 URL：\n");
+            sb.append("抓取失败的 URL（请不要凭记忆回答这些页面的内容）：\n");
             for (int i = 0; i < failedCount; i++) {
                 JSONObject item = failed.getJSONObject(i);
                 String reason = str(item, "error");

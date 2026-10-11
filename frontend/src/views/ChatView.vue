@@ -65,8 +65,8 @@
 
     <!-- 右侧聊天区 -->
     <div class="chat-page">
-      <!-- 顶部工具栏：知识库选择 -->
-      <div class="chat-toolbar">
+      <!-- 顶部工具栏：知识库选择（仅知识库对话模式显示） -->
+      <div v-if="knowledgeMode" class="chat-toolbar">
         <div class="kb-selector">
           <span class="kb-label">📚 知识库</span>
           <select v-model="selectedKnowledgeId" class="kb-select" :disabled="loading">
@@ -187,18 +187,28 @@
 import { ref, nextTick, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
-import { streamChat, listMessages, listConversations, deleteConversation, clearAllConversations, renameConversation } from '../api/chat'
+import { streamChat, streamKnowledgeChat, listMessages, listConversations, deleteConversation, clearAllConversations, renameConversation } from '../api/chat'
 import { listKnowledge } from '../api/knowledge'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import InputDialog from '../components/InputDialog.vue'
 import PaginationBar from '../components/PaginationBar.vue'
 
 const route = useRoute()
+
+/**
+ * 组件双模式复用：
+ * - /chat            普通对话（默认）：无知识库选择器，调用 /api/chat/stream，不检索知识库
+ * - /knowledge/chat  知识库对话（props.knowledgeMode = true）：显示选择器，调用 /api/knowledge/chat/stream 走 RAG 链路
+ */
+const props = defineProps({
+  knowledgeMode: { type: Boolean, default: false }
+})
+
 const messageList = ref(null)
 const inputText = ref('')
 const loading = ref(false)
 const currentMessages = ref([
-  { id: 'welcome', role: 'ai', content: '你好！有什么我可以帮你的吗？' }
+  { id: 'welcome', role: 'ai', content: props.knowledgeMode ? '你好！我是知识库助手，可在上方选择知识库（默认检索全部），我会基于库内文档回答问题。' : '你好！有什么我可以帮你的吗？' }
 ])
 
 const editingMessageId = ref(null)
@@ -255,7 +265,12 @@ watch(() => route.query.id, (id) => {
 })
 
 onMounted(async () => {
-  await Promise.all([loadConversations(), loadKnowledgeBases()])
+  const tasks = [loadConversations()]
+  // 仅知识库对话模式需要加载知识库下拉列表
+  if (props.knowledgeMode) {
+    tasks.push(loadKnowledgeBases())
+  }
+  await Promise.all(tasks)
   if (conversationId.value) {
     await loadMessages(conversationId.value)
   }
@@ -275,7 +290,9 @@ async function loadConversations() {
     const res = await listConversations({
       pageNum: convPagination.value.pageNum,
       pageSize: convPagination.value.pageSize,
-      keyword: convKeyword.value
+      keyword: convKeyword.value,
+      // 会话按类型隔离：普通对话页只看 chat，知识库对话页只看 kb
+      chatType: props.knowledgeMode ? 'kb' : 'chat'
     })
     conversations.value = res.list || []
     convPagination.value = {
@@ -384,7 +401,8 @@ async function onConfirmClearAll() {
   }
   deletingConv.value = true
   try {
-    await clearAllConversations()
+    // 只清空当前页面类型的会话（普通对话 chat / 知识库对话 kb）
+    await clearAllConversations(props.knowledgeMode ? 'kb' : 'chat')
     confirmVisible.value = false
     // 若当前正查看某个历史会话，新建空会话
     startNewChat()
@@ -537,32 +555,46 @@ async function doSend(content) {
   startThinkingTimer()
   scrollToBottom()
 
-  try {
-    await streamChat({
-      conversationId: conversationId.value,
-      message: content,
-      knowledgeId: selectedKnowledgeId.value,
-      onStart: (payload) => {
-        conversationId.value = payload.conversationId
-      },
-      onMessage: (payload) => {
-        const msg = currentMessages.value.find(m => m.id === aiMsgId)
-        if (msg) msg.content += payload.content || ''
-        scrollToBottom()
-      },
-      onDone: async (payload) => {
-        const msg = currentMessages.value.find(m => m.id === aiMsgId)
-        if (msg) {
-          if (payload && payload.referencedChunks && payload.referencedChunks.length) {
-            msg.referencedChunks = payload.referencedChunks
-          }
-          if (!msg.content) {
-            msg.content = '抱歉，我没有获取到回复，请稍后再试。'
-          }
+  // 两种模式调用各自独立的接口：普通对话 /api/chat/stream，知识库对话 /api/knowledge/chat/stream
+  const handlers = {
+    onStart: (payload) => {
+      conversationId.value = payload.conversationId
+    },
+    onMessage: (payload) => {
+      const msg = currentMessages.value.find(m => m.id === aiMsgId)
+      if (msg) msg.content += payload.content || ''
+      scrollToBottom()
+    },
+    onDone: async (payload) => {
+      const msg = currentMessages.value.find(m => m.id === aiMsgId)
+      if (msg) {
+        if (payload && payload.referencedChunks && payload.referencedChunks.length) {
+          msg.referencedChunks = payload.referencedChunks
         }
-        await loadConversations()
+        if (!msg.content) {
+          msg.content = '抱歉，我没有获取到回复，请稍后再试。'
+        }
       }
-    })
+      await loadConversations()
+    }
+  }
+
+  try {
+    if (props.knowledgeMode) {
+      // knowledgeId 为 null 表示检索当前用户全部知识库
+      await streamKnowledgeChat({
+        conversationId: conversationId.value,
+        message: content,
+        knowledgeId: selectedKnowledgeId.value,
+        ...handlers
+      })
+    } else {
+      await streamChat({
+        conversationId: conversationId.value,
+        message: content,
+        ...handlers
+      })
+    }
   } catch (e) {
     const msg = currentMessages.value.find(m => m.id === aiMsgId)
     if (msg) {

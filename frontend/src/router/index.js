@@ -28,6 +28,7 @@ const routes = [
   { path: '/chat', name: 'chat', component: ChatView, meta: { title: '对话' } },
   { path: '/chat/multimodal', name: 'multimodal-chat', component: MultimodalChatView, meta: { title: '多模态对话' } },
   { path: '/chat/records', name: 'chat-records', component: ChatRecordView, meta: { title: '会话记录' } },
+  { path: '/knowledge/chat', name: 'knowledge-chat', component: ChatView, props: { knowledgeMode: true }, meta: { title: '知识库对话' } },
   { path: '/knowledge/manage', name: 'knowledge-manage', component: KnowledgeManage, meta: { title: '知识库管理' } },
   { path: '/knowledge/upload', name: 'knowledge-upload', component: KnowledgeUpload, meta: { title: '知识库上传' } },
   { path: '/memory', name: 'memory', component: MemoryView, meta: { title: '长期记忆' } },

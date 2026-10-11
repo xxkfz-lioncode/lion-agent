@@ -1,44 +1,53 @@
 package com.lion.agent.tools.base;
 
-import cn.hutool.core.date.DateUtil;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 /**
  * 日期时间工具集：向大模型暴露获取系统当前时间的能力。
  * <p>
- * 通过 {@code @CircuitBreaker} 保护：获取时间异常或熔断器打开（OPEN）时，
- * 自动降级到 {@link #getNowDateFallback}，避免异常直接抛给模型调用链路。
+ * 纯本地计算（无外部依赖、无 IO），因此工具方法本身不需要熔断降级：
+ * 唯一的失败点是入参格式非法，已被 try-catch 兜住并返回可读提示。
+ * <p>
+ * 注意：{@link Tool} 的 description 是模型判断"要不要调用、怎么传参"的唯一依据，
+ * 统一使用英文书写（明确能力 + 何时使用 + 返回格式），中文描述在部分模型上召回率更低。
  */
 @Slf4j
 @Component
 public class DateTools {
 
+    /** 默认返回格式：yyyy-MM-dd HH:mm:ss */
+    private static final DateTimeFormatter DEFAULT_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     /**
      * 获取系统当前时间。
      *
-     * @return 当前时间字符串，格式 yyyy-MM-dd HH:mm:ss，例如 "2026-08-23 10:33:06"
+     * @param pattern 可选输出格式（Java DateTimeFormatter 语法），为空时使用默认格式 yyyy-MM-dd HH:mm:ss
+     * @return 当前时间字符串，例如 "2026-08-23 10:33:06"
      */
-    @Tool(description = "获取当前时间，返回格式如 \"2026-08-23 10:33:06\" 的日期字符串")
-    @CircuitBreaker(name = "dateTools", fallbackMethod = "getNowDateFallback")
-    public String getNowDate() {
-       return DateUtil.now();
-    }
-
-    /**
-     * 降级方法：本地时间获取异常或熔断器打开（OPEN）拒绝调用时执行。
-     * <p>
-     * 签名与 {@link #getNowDate()} 匹配（同入参 + 可选 Throwable），返回 String，
-     * 保证熔断期间大模型仍能拿到可读文案，而非收到异常中断工具调用。
-     * </p>
-     *
-     * @param throwable 触发降级的原始异常（熔断器 OPEN 时可能为 null）
-     * @return 降级文案，提示调用方稍后重试
-     */
-    public String getNowDateFallback(Throwable throwable) {
-        log.error("获取当前时间失败，触发熔断降级，原因: {}", throwable.getMessage());
-        return "获取当前时间失败，请稍后再试。";
+    @Tool(name = "getNowDate",
+          description = "Get the current system date and time. Returns a formatted string such as \"2026-08-23 10:33:06\". "
+                  + "Use it whenever the user asks for today's date, the current time, the current year/month/weekday, "
+                  + "or when answering questions like \"how many days until ...\" that require the real current time. "
+                  + "The optional 'pattern' argument customizes the output format (Java DateTimeFormatter syntax, "
+                  + "e.g. \"yyyy-MM-dd\" or \"HH:mm:ss\"); leave it empty for the default \"yyyy-MM-dd HH:mm:ss\".")
+    public String getNowDate(@ToolParam(description = "Optional output format in Java DateTimeFormatter syntax, e.g. \"yyyy-MM-dd\". Leave empty for the default \"yyyy-MM-dd HH:mm:ss\".", required = false) String pattern) {
+        LocalDateTime now = LocalDateTime.now();
+        if (!StringUtils.hasText(pattern)) {
+            return now.format(DEFAULT_FORMATTER);
+        }
+        try {
+            return now.format(DateTimeFormatter.ofPattern(pattern.trim()));
+        } catch (IllegalArgumentException e) {
+            log.warn("非法的日期格式 pattern: {}", pattern);
+            return "错误：日期格式不合法 \"" + pattern + "\"，请使用 Java DateTimeFormatter 语法，例如 \"yyyy-MM-dd HH:mm:ss\"。";
+        }
     }
 }

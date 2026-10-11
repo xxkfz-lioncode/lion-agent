@@ -25,13 +25,15 @@ public class ConversationController {
 
     private final ChatService chatService;
 
-    @Operation(summary = "获取当前用户的会话列表")
+    @Operation(summary = "获取当前用户的会话列表",
+            description = "chatType：chat-普通对话 / kb-知识库问答；不传返回全部类型")
     @GetMapping
     public R<PageResult<Conversation>> list(
             @RequestParam(required = false, defaultValue = "1") @Min(1) int pageNum,
             @RequestParam(required = false, defaultValue = "20") @Min(1) @Max(100) int pageSize,
-            @RequestParam(required = false) String keyword) {
-        return R.success(chatService.listConversations(pageNum, pageSize, keyword));
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String chatType) {
+        return R.success(chatService.listConversations(pageNum, pageSize, keyword, chatType));
     }
 
     @Operation(summary = "获取会话消息记录")
@@ -50,10 +52,11 @@ public class ConversationController {
         return R.success();
     }
 
-    @Operation(summary = "清空当前用户的所有会话")
+    @Operation(summary = "清空当前用户的会话",
+            description = "chatType：chat-普通对话 / kb-知识库问答，只清空该类型；不传清空全部")
     @DeleteMapping("/all")
-    public R<Void> clearAll() {
-        chatService.clearAllConversations();
+    public R<Void> clearAll(@RequestParam(required = false) String chatType) {
+        chatService.clearAllConversations(chatType);
         return R.success();
     }
 

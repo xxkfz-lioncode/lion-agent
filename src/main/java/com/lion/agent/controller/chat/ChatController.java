@@ -22,9 +22,12 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.List;
 
 /**
- * 对话接口
+ * 普通对话接口
+ *
+ * <p>只处理一般对话（闲聊 / 通用咨询 / 工具调用），不做知识库检索；
+ * 知识库问答见 {@code KnowledgeChatController}（/api/knowledge/chat）。</p>
  */
-@Tag(name = "02-智能对话", description = "与千问大模型对话")
+@Tag(name = "02-智能对话", description = "与千问大模型对话（普通对话；知识库问答见「知识库对话」）")
 @RestController
 @RequestMapping("/api/chat")
 @RequiredArgsConstructor

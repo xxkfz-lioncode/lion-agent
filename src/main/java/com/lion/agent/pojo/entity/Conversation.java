@@ -26,6 +26,9 @@ public class Conversation {
     /** 会话标题 */
     private String title;
 
+    /** 会话类型：chat-普通对话 kb-知识库问答（见 ChatType） */
+    private String chatType;
+
     /** 创建时间 */
     private LocalDateTime createdAt;
 

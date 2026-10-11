@@ -370,7 +370,7 @@ docker compose logs -f backend             # 看后端启动日志
 | 表 | 说明 |
 | --- | --- |
 | `sys_user` | 用户（含昵称、头像；密码 BCrypt） |
-| `chat_conversation` | 会话（支持重命名/删除/清空） |
+| `chat_conversation` | 会话（支持重命名/删除/清空；`chat_type` 区分 `chat`-普通对话 / `kb`-知识库问答，两类会话列表相互隔离） |
 | `chat_message` | 消息（`user` / `assistant`），多轮记忆的唯一落库来源 |
 | `chat_conversation_summary` | 会话摘要，多版本保留（`version` + `last_message_id` 增量游标） |
 | `knowledge_base` | 知识库 |
@@ -387,6 +387,7 @@ docker compose logs -f backend             # 看后端启动日志
 用户消息 → 落库 chat_message → Advisor 链 → 模型调用 → 回复落库 + 写语义缓存
 ```
 
+- **链路分离**：普通对话走 `POST /api/chat/send` / `/api/chat/stream`（`ChatServiceImpl`）；知识库问答走独立的 `POST /api/knowledge/chat/send` / `/api/knowledge/chat/stream`（`KnowledgeChatServiceImpl`），两者共用 `ChatPersistenceSupport` 与 `ChatLlmSupport`，详见 2.3。
 - **多轮记忆**：会话内多轮记忆由「JDBC 滑动窗口原文（短程）」与「`chat_message` 全量 + 增量压缩摘要（长程）」双通路共同提供，完整机制见 1.1 / 1.2。
 - **语义缓存**（`QaCacheAdvisor` + `QaCacheService`）：问题先做向量检索，与历史问题相似度 ≥ 阈值（默认 0.78）直接复用历史回答——省 token、秒回、答案一致；按 `userId` 隔离；Milvus 故障自动降级跳过缓存，不影响主流程。
 - **多模态**：`POST /api/chat/multimodal`，`multipart/form-data` 上传 `message` + `images`（多张）/ `imageUrls`，图文一起发送给多模态模型。
@@ -515,17 +516,22 @@ lion:
 > 注意：`page` 仅支持 PDF；对非 PDF 文件选择该策略会在处理阶段失败，`fail_reason` 记录「按页切分仅支持 PDF 文件：xxx」；
 > 扫描件（图片型 PDF）因提取不到文本会提示需先做 OCR。
 
-#### 2.3 统一对话入口 + 意图识别（Advanced RAG 流水线）
+#### 2.3 对话链路拆分：普通对话 / 知识库问答（Advanced RAG 流水线）
 
-一般对话与知识库问答统一走 `POST /api/chat/send` / `/api/chat/stream`（请求可带可选 `knowledgeId`，不传则检索用户全部知识库）：
+两条链路在接口与服务层完全分离：
+
+| 链路 | 接口 | 服务实现 | 说明 |
+|---|---|---|---|
+| 普通对话 | `POST /api/chat/send`、`/api/chat/stream` | `ChatServiceImpl` | 闲聊/通用咨询/工具调用，不检索知识库 |
+| 知识库问答 | `POST /api/knowledge/chat/send`、`/api/knowledge/chat/stream` | `KnowledgeChatServiceImpl` | 固定走 RAG 检索链路，返回 `referencedChunks` |
+
+两者共用 `ChatPersistenceSupport`（会话定位/消息落库）与 `ChatLlmSupport`（模型调用），避免逻辑重复。
+
+知识库问答链路（请求可带可选 `knowledgeId`，不传则检索用户全部知识库）：
 
 ```
 用户问题（+ 可选 knowledgeId）
-  → ① 意图分类：显式 LLM 分类（GENERAL / KNOWLEDGE）
-       - 指定了 knowledgeId → 直接 KNOWLEDGE
-       - 用户没有任何知识库 → 直接 GENERAL
-       - 否则裸 ChatModel 按模板分类（失败降级 GENERAL）
-  → ② 语义改写：LLM 将口语化问题改写为检索友好查询（失败回退原文）
+  → ① 语义改写：LLM 将口语化问题改写为检索友好查询（失败回退原文）
   → ③ 扩容多路检索：原问题 + 改写问题各召回 TopK=20（扩大候选池）
   → ④ RRF 融合 + 粗筛：两路按 RRF 分数（1/(60+rank)）去重排序，保留前 10
   → ⑤ Rerank：LLM 按相关性打分（0-100）重排，取前 5（可替换为专用 Rerank API）
@@ -537,7 +543,7 @@ lion:
 
 设计要点：
 
-- **意图识别路由**：`IntentRecognitionService` 三步分类（显式指定 → 无知识库 → LLM 分类），意图为 GENERAL 时完全不触发检索，保持普通对话的响应速度；
+- **链路分离**：普通对话不再判断是否检索，知识库问答由独立接口固定走检索链路，两条链路互不干扰、可独立演进（原 `IntentRecognitionService` 不再参与主链路）；
 - **recall 扩容**：原问题 + 改写问题各取 TopK=20，两路合并扩大候选池，靠后置重排保证 precision；
 - **RRF 融合**：两路结果按 Reciprocal Rank Fusion 加权去重，缓解单路召回偏差；
 - **LLM Rerank 精挑**：Top10 → Top5，替代一次性小 TopK 的精度损失；
@@ -567,7 +573,7 @@ MCP：本服务内置 streamable-http Server（`/mcp`），同时可作为 SSE C
 3. `ToolIndex` 检索命中后，命中的工具定义被**追加进对话**，下一轮迭代模型即可正常发起工具调用；
 4. 工具执行仍由 `ToolCallingManager` 完成，结果照常回到模型——它只是把工具定义**延迟注入**原有循环，不是另一套执行链路。
 
-**索引按会话隔离**：`ToolIndex` 的全部操作以 `sessionId` 为作用域（`indexTool` / `indexTools` / `search` / `clearIndex`），会话 ID 默认从 advisor context 的 `ChatMemory.CONVERSATION_ID` 键读取。项目在 `ChatServiceImpl` 里已经传了该键（`.advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))`），所以会话隔离"免费"生效，无需额外代码。
+**索引按会话隔离**：`ToolIndex` 的全部操作以 `sessionId` 为作用域（`indexTool` / `indexTools` / `search` / `clearIndex`），会话 ID 默认从 advisor context 的 `ChatMemory.CONVERSATION_ID` 键读取。项目在 `ChatLlmSupport` 里已经传了该键（`.advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))`），所以会话隔离"免费"生效，无需额外代码。
 
 **三种 ToolIndex 实现**（`spring.ai.chat.client.tool-search-advisor.tool-index-type`）：
 
