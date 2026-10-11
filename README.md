@@ -1,4 +1,25 @@
-# Lion Agent
+<div align="center">
+
+<!-- 想换成自己的 Logo：把图片放进 README.assets/，再把下面这行换成 <img src="README.assets/logo.png" width="120" alt="Lion Agent" /> -->
+
+# 🦁 Lion Agent · 智能体服务平台
+
+**基于 Spring AI 2.0 的智能体服务平台 —— 覆盖对话、RAG、记忆、工具调用与全链路可观测的完整闭环**
+
+[![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk&logoColor=white)](https://www.oracle.com/java/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.0.7-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
+[![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.1-6DB33F?logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
+[![Milvus](https://img.shields.io/badge/Milvus-2.6.0-00A1EA)](https://milvus.io/)
+[![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com/)
+[![Redis](https://img.shields.io/badge/Redis-7.4-DC382D?logo=redis&logoColor=white)](https://redis.io/)
+[![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-1B1F23)](https://modelcontextprotocol.io/)
+[![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
+
+[功能总览](#功能总览) · [项目效果图](#项目效果图) · [技术栈](#技术栈) · [快速开始](#快速开始) · [核心设计](#核心设计)
+
+</div>
+
+---
 
 基于 **Spring AI 2.0**（Spring Boot 4 / Java 21）的智能体（Agent）服务平台：文本/流式/多模态对话、知识库 RAG（入库→切分→多路召回→重排→门控）、语义缓存、跨会话长期记忆、自定义技能（动态工具）、多工具调用（含 MCP 远程工具）、Token 用量统计，并通过 OTel + Langfuse 原生摄取实现全链路可观测（含对话评分）；配套 Vue 3 后台前端（独立首页 + 标签页导航 + 用户设置）。
 
