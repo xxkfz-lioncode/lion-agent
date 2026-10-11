@@ -15,7 +15,7 @@
 [![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-1B1F23)](https://modelcontextprotocol.io/)
 [![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 
-[功能总览](#功能总览) · [项目效果图](#项目效果图) · [技术栈](#技术栈) · [快速开始](#快速开始) · [核心设计](#核心设计)
+[功能总览](#功能总览) · [界面预览](#界面预览) · [技术栈](#技术栈) · [快速开始](#快速开始) · [核心设计](#核心设计)
 
 </div>
 
@@ -36,17 +36,95 @@
 | 用量与可观测 | Token 用量统计（用户/会话/模型维度）+ OpenTelemetry→Langfuse 全链路 Trace + 原生摄取能力（对话满意度评分 / 自定义事件补报，含演示接口） |
 | 账号体系 | 注册/登录（BCrypt + Sa-Token），个人资料（昵称/头像）与密码自助修改 |
 
-## 项目效果图
+## 界面预览
 
-![image-20260912130800875](README.assets/image-20260912130800875.png)
+> 按功能顺序排列：首页 → 智能对话 → 知识库问答 → 模型与敏感词 → MCP → Dify 集成 → 部署运行。
+> 点击分组标题可折叠 / 展开。
 
-![image-20260912130911330](README.assets/image-20260912130911330.png)
+<details open>
+<summary><b>① 首页</b></summary>
 
-![image-20260912131122888](README.assets/image-20260912131122888.png)
+<div align="center">
+<table>
+<tr>
+<td width="100%" align="center"><img src="README.assets/首页.png" width="80%" alt="平台首页" /><br /><sub>首页 · 平台总览</sub></td>
+</tr>
+</table>
+</div>
 
-![image-20260912131240220](README.assets/image-20260912131240220.png)
+</details>
 
+<details open>
+<summary><b>② 智能对话（SSE 流式输出）</b></summary>
 
+<div align="center">
+<table>
+<tr>
+<td width="100%" align="center"><img src="README.assets/智能流式对话.png" width="80%" alt="智能对话 SSE 流式输出" /><br /><sub>智能对话 · SSE 流式输出</sub></td>
+</tr>
+</table>
+</div>
+
+</details>
+
+<details>
+<summary><b>③ 知识库 RAG（上传 → 问答 → 引用溯源）</b></summary>
+
+<div align="center">
+<table>
+<tr>
+<td width="50%"><img src="README.assets/知识库上传.png" width="100%" alt="知识库文档上传" /><br /><sub>文档上传 · 解析入库</sub></td>
+<td width="50%"><img src="README.assets/知识库问答1.png" width="100%" alt="知识库问答" /><br /><sub>知识库问答</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="README.assets/知识库问答2-引用溯源.png" width="100%" alt="知识库问答引用溯源" /><br /><sub>答案引用溯源</sub></td>
+<td width="50%"></td>
+</tr>
+</table>
+</div>
+
+</details>
+
+<details>
+<summary><b>④ 模型管理与敏感词</b></summary>
+
+<div align="center">
+<table>
+<tr>
+<td width="50%"><img src="README.assets/模型管理.png" width="100%" alt="模型配置管理" /><br /><sub>模型配置管理 · 在线试跑</sub></td>
+<td width="50%"><img src="README.assets/敏感词.png" width="100%" alt="敏感词管理" /><br /><sub>敏感词管理 · 拦截测试</sub></td>
+</tr>
+</table>
+</div>
+
+</details>
+
+<details>
+<summary><b>⑤ MCP 远程工具</b></summary>
+
+<div align="center">
+<table>
+<tr>
+<td width="100%" align="center"><img src="README.assets/MCP.png" width="80%" alt="MCP 服务管理" /><br /><sub>MCP 服务管理 · 远程工具接入</sub></td>
+</tr>
+</table>
+</div>
+
+</details>
+
+<details>
+<summary><b>⑥ Dify 平台集成</b></summary>
+
+<div align="center">
+<table>
+<tr>
+<td width="50%"><img src="README.assets/对接dify应用.png" width="100%" alt="对接 Dify 应用" /><br /><sub>对接 Dify 应用</sub></td>
+<td width="50%"><img src="README.assets/dify平台.png" width="100%" alt="Dify 平台" /><br /><sub>Dify 平台</sub></td>
+</tr>
+</table>
+</div>
+
+</details>
 
 ## 技术栈
 
@@ -342,6 +420,12 @@ docker compose logs -f backend             # 看后端启动日志
 - 容器内中间件一律走服务名（`mysql` / `redis` / `milvus-standalone`），无需改 yml
 - dev 档的调试增强已在 compose 里用环境变量关成生产行为：`LOG_LEVEL=info`、`AI_LOG_LEVEL=warn`、`AI_LOG_PROMPT=false`、`SPRINGDOC_ENABLED=false`
 - 想彻底不加载 `application-dev.yml`，在 compose 的 backend 里加一行 `SPRING_PROFILES_ACTIVE: default`
+
+<div align="center">
+<img src="README.assets/容器列表.png" width="80%" alt="Docker 容器运行状态" /><br /><sub>docker compose ps：MySQL / Redis / Milvus / 后端 / 前端容器全部运行</sub>
+</div>
+
+
 
 ## 配置管理
 
