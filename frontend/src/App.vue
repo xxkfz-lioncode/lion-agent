@@ -314,7 +314,7 @@ const menuTree = [
     title: '对话中心',
     icon: '💬',
     children: [
-      { path: '/chat', title: '对话', icon: '💬' },
+      { path: '/chat', title: '智能对话', icon: '💬' },
       { path: '/chat/multimodal', title: '多模态对话', icon: '🖼️' },
       { path: '/chat/records', title: '会话记录', icon: '📜' }
     ]
@@ -324,9 +324,9 @@ const menuTree = [
     title: '知识库',
     icon: '📚',
     children: [
-      { path: '/knowledge/chat', title: '知识库对话', icon: '💬' },
+      { path: '/knowledge/chat', title: '知识库问答', icon: '💬' },
       { path: '/knowledge/manage', title: '知识库管理', icon: '🛠️' },
-      { path: '/knowledge/upload', title: '知识库上传', icon: '📤' }
+      { path: '/knowledge/upload', title: '文档上传', icon: '📤' }
     ]
   },
   {
@@ -356,13 +356,13 @@ const menuTree = [
     title: '系统管理',
     icon: '🛡️',
     children: [
-      { path: '/sensitive/manage', title: '敏感词管理', icon: '🛡️' }
+      { path: '/sensitive/manage', title: '敏感词管理', icon: '🛡️' },
+      { path: '/usage', title: '用量统计', icon: '📊' },
+      // 站内页面内嵌后端 Swagger UI
+      { path: '/swagger', title: '接口文档', icon: '📘' }
     ]
   },
   // Spring AI 大纲不在侧边栏显示，从首页「Spring AI 知识体系」卡片进入
-  { key: 'usage', path: '/usage', title: '用量统计', icon: '📊' },
-  // 接口文档：站内页面内嵌后端 Swagger UI
-  { key: 'swagger', path: '/swagger', title: '接口文档', icon: '📘' }
 ]
 
 function toggleCollapse() {

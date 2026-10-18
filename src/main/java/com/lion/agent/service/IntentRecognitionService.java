@@ -2,7 +2,8 @@ package com.lion.agent.service;
 
 import com.lion.agent.common.enums.ChatIntent;
 import com.lion.agent.config.PromptConfig;
-import com.lion.agent.pojo.entity.KnowledgeBase;
+import com.lion.agent.rag.entity.KnowledgeBase;
+import com.lion.agent.rag.service.KnowledgeBaseService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
@@ -97,8 +98,10 @@ public class IntentRecognitionService {
     private String callLlm(String userText) {
         try {
             ChatResponse response = chatModel.call(new Prompt(userText));
-            if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+            if (response.getResult() == null) {
                 return null;
+            } else {
+                response.getResult();
             }
             return response.getResult().getOutput().getText();
         } catch (Exception e) {

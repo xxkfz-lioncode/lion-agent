@@ -1,5 +1,6 @@
 package com.lion.agent.pojo.vo;
 
+import com.lion.agent.rag.vo.ChunkSource;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Data;

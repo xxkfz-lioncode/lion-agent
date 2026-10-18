@@ -16,7 +16,7 @@ import java.time.Instant;
  */
 @Slf4j
 @SpringBootApplication
-@MapperScan("com.lion.agent.mapper")
+@MapperScan({"com.lion.agent.mapper", "com.lion.agent.rag.mapper"})
 public class LionAgentApplication {
 
     public static void main(String[] args) {

@@ -9,7 +9,7 @@ import com.lion.agent.pojo.entity.Skill;
 import com.lion.agent.common.exception.BusinessException;
 import com.lion.agent.mapper.SkillMapper;
 import com.lion.agent.service.SkillService;
-import com.lion.agent.skill.SkillToolRegistry;
+import com.lion.agent.skills.SkillToolRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

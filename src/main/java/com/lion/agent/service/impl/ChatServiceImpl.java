@@ -165,8 +165,7 @@ public class ChatServiceImpl implements ChatService {
         // 4. 生成回复（普通对话链路）
         String reply;
         try {
-            reply = llmSupport.call(request.getMessage(), conversationId, ChatType.CHAT.getValue(),
-                    request.getMessage());
+            reply = llmSupport.call(request.getMessage(), conversationId, ChatType.CHAT.getValue(), request.getMessage());
         } catch (Exception e) {
             log.error("[Chat] 生成回复失败 conversationId={}", conversationId, e);
             // 失败也要把用户消息落库，避免前端刷新后这条提问凭空消失

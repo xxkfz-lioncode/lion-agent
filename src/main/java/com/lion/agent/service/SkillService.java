@@ -3,7 +3,7 @@ package com.lion.agent.service;
 import com.lion.agent.common.result.PageResult;
 import com.lion.agent.pojo.dto.SkillRequest;
 import com.lion.agent.pojo.entity.Skill;
-import com.lion.agent.skill.SkillToolRegistry;
+import com.lion.agent.skills.SkillToolRegistry;
 
 import java.util.Map;
 

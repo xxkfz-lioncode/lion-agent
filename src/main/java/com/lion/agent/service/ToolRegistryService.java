@@ -7,7 +7,7 @@ import com.lion.agent.pojo.vo.LocalToolVo;
 import com.lion.agent.common.enums.VectorType;
 import com.lion.agent.common.utils.LazyMilvusVectorStoreUtils;
 import com.lion.agent.event.McpServerChangedEvent;
-import com.lion.agent.skill.SkillToolRegistry;
+import com.lion.agent.skills.SkillToolRegistry;
 import com.lion.agent.tools.base.*;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.milvus.client.MilvusServiceClient;
