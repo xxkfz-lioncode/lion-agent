@@ -17,11 +17,9 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
-import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.publisher.Flux;
 
@@ -34,11 +32,16 @@ import static com.lion.agent.common.constants.AdvisorConstants.CONVERSATION_ID_K
 /**
  * 会话记忆摘要压缩 Advisor（Spring AI 2.0）
  * <p>
- * 职责（基于业务表 {@code chat_message}，不再依赖 Spring AI 内存仓库）：
- * 1. 调用前：按 conversationId 从 {@code chat_message} 表读取历史，注入到本次 prompt（实现多轮记忆）；
- *    超过阈值时，仅对「上次摘要之后的新增消息」做增量压缩，最新摘要持久化到
- *    {@code chat_conversation_summary} 表（version 递增、last_message_id 游标推进）。
- * 2. 本次「用户问题 + 助手回复」由 ChatServiceImpl 直接落库到 chat_message 表，本 Advisor 不再写记忆。
+ * 职责：只负责「长历史的压缩摘要」，基于业务表 {@code chat_message}：
+ * <ol>
+ *   <li>调用前按 conversationId 读取历史，仅对「上次摘要之后的新增消息」做增量压缩，
+ *       最新摘要持久化到 {@code chat_conversation_summary} 表
+ *       （version 递增、last_message_id 游标推进）；</li>
+ *   <li>把摘要以 SystemMessage 注入 prompt，<b>不注入历史原文</b>——近期原文由
+ *       {@code MessageChatMemoryAdvisor}（窗口记忆）负责。两者若都注入原文，同一段历史会在
+ *       prompt 里出现两次：多轮对话出现整段重复、token 翻倍，且模型可能误以为用户重复提问；</li>
+ *   <li>本次「用户问题 + 助手回复」由 ChatServiceImpl 落库到 chat_message，本 Advisor 不写记忆。</li>
+ * </ol>
  * <p>
  * 注意：{@code summaryChatClient} 必须是不含本 Advisor 的干净 ChatClient，否则摘要请求会递归触发自身。
  */
@@ -49,31 +52,22 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
     private final ConversationSummaryMapper summaryMapper;
     private final PromptConfig promptConfig;
     private final int summaryThreshold;   // 触发摘要压缩的新增消息条数阈值
-    private final int keepRecentCount;    // 压缩时注入的最近 N 条消息
     private final int order;              // 调用链顺序（order 越小越靠外层）
 
     public ConversationSummaryAdvisor(ChatClient.Builder builder, ChatMessageMapper chatMessageMapper,
                                       ConversationSummaryMapper summaryMapper, int summaryThreshold,
                                       PromptConfig promptConfig) {
-        this(builder, chatMessageMapper, summaryMapper, summaryThreshold, 5, 100, promptConfig);
+        this(builder, chatMessageMapper, summaryMapper, summaryThreshold, 100, promptConfig);
     }
 
     public ConversationSummaryAdvisor(ChatClient.Builder builder, ChatMessageMapper chatMessageMapper,
                                       ConversationSummaryMapper summaryMapper,
-                                      int summaryThreshold, int keepRecentCount, PromptConfig promptConfig) {
-        this(builder, chatMessageMapper, summaryMapper, summaryThreshold, keepRecentCount, 100, promptConfig);
-    }
-
-    public ConversationSummaryAdvisor(ChatClient.Builder builder, ChatMessageMapper chatMessageMapper,
-                                      ConversationSummaryMapper summaryMapper,
-                                      int summaryThreshold, int keepRecentCount, int order,
-                                      PromptConfig promptConfig) {
+                                      int summaryThreshold, int order, PromptConfig promptConfig) {
         this.summaryChatClient = builder.build();
         this.chatMessageMapper = chatMessageMapper;
         this.summaryMapper = summaryMapper;
         this.promptConfig = promptConfig;
         this.summaryThreshold = summaryThreshold;
-        this.keepRecentCount = keepRecentCount;
         this.order = order;
     }
 
@@ -126,24 +120,13 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
             return request;
         }
 
-        // 增量压缩：仅摘要游标之后的新增消息，返回最新摘要（可能为 null）
+        // 增量压缩：仅摘要游标之后的新增消息，返回最新摘要（未达阈值时为 null）
         String latestSummary = ensureSummary(cid, historyRows);
-
-        // 组装注入内容：最新摘要（SystemMessage）+ 最近 N 条消息
-        List<Message> finalHistory = new ArrayList<>();
-        if (latestSummary != null && !latestSummary.isBlank()) {
-            finalHistory.add(new SystemMessage("[对话历史摘要]\n" + latestSummary));
-        }
-        int from = Math.max(0, historyRows.size() - keepRecentCount);
-        for (ChatMessage row : historyRows.subList(from, historyRows.size())) {
-            Message msg = toAiMessage(row);
-            if (msg != null) {
-                finalHistory.add(msg);
-            }
-        }
-        if (finalHistory.isEmpty()) {
+        if (latestSummary == null || latestSummary.isBlank()) {
             return request;
         }
+        // 只注入摘要；历史原文由 MessageChatMemoryAdvisor 注入，避免同一段历史在 prompt 里出现两次
+        List<Message> finalHistory = List.of(new SystemMessage("[对话历史摘要]\n" + latestSummary));
 
         // 把历史插到第一个用户消息之前（保持 system 提示词在最前）
         List<Message> instructions = request.prompt().getInstructions();
@@ -215,20 +198,6 @@ public class ConversationSummaryAdvisor implements CallAdvisor, StreamAdvisor {
     }
 
     // ==================== 工具方法 ====================
-
-    private Message toAiMessage(ChatMessage row) {
-        try {
-            if ("user".equals(row.getRole())) {
-                return new UserMessage(row.getContent());
-            }
-            if ("assistant".equals(row.getRole())) {
-                return new AssistantMessage(row.getContent());
-            }
-        } catch (Exception e) {
-            log.warn("[Summary] 消息转换失败 messageId={} error={}", row.getId(), e.getMessage());
-        }
-        return null;
-    }
 
     private Long toLong(String conversationId) {
         try {

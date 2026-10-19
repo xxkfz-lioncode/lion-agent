@@ -62,7 +62,7 @@ public class AiConfig {
      *         │  ③  │ QaCacheAdvisor               │ MIN + 150  │ 语义缓存命中即短路，跳过记忆与工具
      *         │  ④  │ MessageChatMemoryAdvisor     │ MIN + 200  │ 会话历史注入 / 最终回答回写（JDBC 窗口记忆）
      *         │  ⑤  │ LongTermMemoryAdvisor        │ MIN + 220  │ 注入跨会话事实与偏好，响应阶段异步抽取
-     *         │  ⑥  │ ConversationSummaryAdvisor   │ MIN + 240  │ 注入历史摘要 + 增量压缩（chat_message 表）
+     *         │  ⑥  │ ConversationSummaryAdvisor   │ MIN + 240  │ 仅注入摘要 + 增量压缩（原文由 ④ 注入，避免重复）
      *         │  ⑦  │ ChatLoggerAdvisor            │ 0          │ 完整日志：注入记忆后的 prompt + 最终响应
      *         │  ⑧  │ ToolSearchToolCallingAdvisor │ MAX - 100  │ 工具循环本体（自动挂载，不手动 add）
      *         │  ⑨  │ ChatLoggerAdvisor(工具轮次)  │ MAX - 50   │ 循环内，打印每轮的工具调用与工具返回
@@ -221,9 +221,9 @@ public class AiConfig {
         advisors.add(new LongTermMemoryAdvisor(memoryService, chatModel, promptConfig, memoryInjectTopK,
                 LONG_TERM_MEMORY_ORDER));
 
-        // ⑥ 会话摘要 MIN+240：从 chat_message 表读历史并注入摘要，超阈值时增量压缩
+        // ⑥ 会话摘要 MIN+240：只注入历史摘要（原文由 ④ 的窗口记忆注入，避免整段历史重复），超阈值时增量压缩
         advisors.add(new ConversationSummaryAdvisor(chatClientBuilder, chatMessageMapper, summaryMapper,
-                100, 5, CONVERSATION_SUMMARY_ORDER, promptConfig));
+                30, CONVERSATION_SUMMARY_ORDER, promptConfig));
 
         // ⑦ 完整日志 0：位于记忆之后、工具之前，打印注入记忆后的完整 prompt + 最终响应（INFO，结构化易读）
         advisors.add(new ChatLoggerAdvisor(LOGGER_ORDER, loggerMaxContentLength));
