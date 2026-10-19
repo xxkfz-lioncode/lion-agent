@@ -19,7 +19,9 @@ import java.util.regex.Pattern;
  *       也避免后续自动补 {@code LIMIT} 时被行注释吞掉而失效</li>
  *   <li><b>多语句</b>：分号之后不得再有可执行内容，防 {@code SELECT 1; DROP TABLE t} 的叠加执行</li>
  *   <li><b>高危关键字</b>：DDL、权限变更、文件导出、DoS 函数一律拒绝</li>
- *   <li><b>系统库</b>：禁止访问 information_schema / mysql / performance_schema / sys，防探测库表结构</li>
+ *   <li><b>系统库</b>：SELECT 放行 information_schema / performance_schema / sys 等（查表结构、
+ *       看性能指标是正当需求）；INSERT / UPDATE / DELETE 命中即拒绝，防止改写 mysql.user 这类
+ *       等同提权的操作</li>
  *   <li><b>语句类型白名单</b>：查询工具只接受 SELECT，写工具只接受对应的单一 DML</li>
  *   <li><b>影响范围</b>：UPDATE / DELETE 必须带 WHERE；SELECT 自动补 LIMIT</li>
  * </ol>
@@ -62,7 +64,10 @@ public class SqlGuard {
                     + "|\\bINTO\\s+(OUT|DUMP)FILE\\b",
             Pattern.CASE_INSENSITIVE);
 
-    /** 系统库访问：探测库表结构属于信息泄露 */
+    /**
+     * 系统库访问：写操作命中即拒绝（改 mysql.user 这类等同提权）；
+     * SELECT 放行，读 information_schema 看表结构、读 performance_schema 看性能指标都是正当需求。
+     */
     private static final Pattern SYSTEM_SCHEMA = Pattern.compile(
             "\\b(information_schema|performance_schema|mysql|sys)\\s*\\.", Pattern.CASE_INSENSITIVE);
 
@@ -107,11 +112,13 @@ public class SqlGuard {
             throw new BusinessException("该 SQL 包含高危操作（" + matcher.group().toUpperCase() + "），已拒绝执行");
         }
 
-        // ④ 系统库
-        Matcher schemaMatcher = SYSTEM_SCHEMA.matcher(skeleton);
-        if (schemaMatcher.find()) {
-            log.warn("[SqlGuard] 尝试访问系统库「{}」，已拦截: {}", schemaMatcher.group(), truncate(trimmed));
-            throw new BusinessException("不允许访问系统库");
+        // ④ 系统库：只读查询放行（查表结构、统计信息是正当需求），写操作一律拒绝
+        if (expected != SqlType.SELECT) {
+            Matcher schemaMatcher = SYSTEM_SCHEMA.matcher(skeleton);
+            if (schemaMatcher.find()) {
+                log.warn("[SqlGuard] {} 尝试写系统库「{}」，已拦截: {}", expected, schemaMatcher.group(), truncate(trimmed));
+                throw new BusinessException("不允许对系统库执行 " + expected.name() + " 操作");
+            }
         }
 
         // ⑤ 语句类型白名单：必须以期望的关键字开头
