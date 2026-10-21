@@ -18,14 +18,7 @@
     <name>lion-mcp-server</name>
     <description>MCP Server 演示项目：同一份代码同时支持 stdio 与 streamable-http 两种传输</description>
 
-    <properties>
-        <java.version>21</java.version>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!-- 与 lion-agent 保持同一版本，避免协议/序列化差异 -->
-        <spring-ai.version>2.0.1</spring-ai.version>
-    </properties>
+    <!-- 编译属性和所有依赖版本都继承自 lion-parent，这里只声明哪些依赖要用 -->
 
     <dependencies>
         <!--
@@ -40,13 +33,11 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
-            <version>${spring-ai.version}</version>
         </dependency>
         <!-- 校验 lion-agent 签发的 JWT 凭据（Hutool 的 JWT + HMac） -->
         <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>
-            <version>5.8.35</version>
         </dependency>
     </dependencies>
 

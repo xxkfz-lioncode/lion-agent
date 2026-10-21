@@ -37,13 +37,186 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
         <!--
-          三个模块共用同一 Spring AI 版本：版本不一致会导致 MCP 协议、
+          Spring AI：三个模块共用同一版本。版本不一致会导致 MCP 协议、
           JSON 序列化行为出现细微差异，排查成本很高。
-          子模块若显式声明了同名 property，会覆盖这里的值。
         -->
         <spring-ai.version>2.0.1</spring-ai.version>
+
+        <!--
+          第三方组件版本（均与 Spring Boot 4.x 兼容）。
+          子模块的依赖不再写 <version>，统一由下面的 dependencyManagement 提供，
+          这样升级只需改这一处，也不会出现同一依赖在不同模块版本漂移。
+        -->
+        <mybatis-plus.version>3.5.17</mybatis-plus.version>
+        <sa-token.version>1.45.0</sa-token.version>
+        <redisson.version>4.7.0</redisson.version>
+        <resilience4j.version>2.4.0</resilience4j.version>
+        <springdoc.version>3.1.0</springdoc.version>
+        <swagger-annotations.version>2.2.52</swagger-annotations.version>
+        <hutool.version>5.8.35</hutool.version>
+        <dify.version>2.3.3</dify.version>
+        <agent-utils.version>0.12.0</agent-utils.version>
+        <typesafe.version>0.2.0</typesafe.version>
+        <a2a-sdk.version>0.3.3.Final</a2a-sdk.version>
+        <!--
+          注意：只有 tika reader 是 2.0.0，其余 Spring AI 组件都是 2.0.1。
+          这是迁移前的既有取值，可能是该 artifact 尚未发布 2.0.1；
+          想拉齐前请先确认仓库里是否存在该版本，否则会解析失败。
+        -->
+        <spring-ai-tika.version>2.0.0</spring-ai-tika.version>
     </properties>
+
+    <!--
+      统一版本管理：这里只声明「版本」，不引入依赖。
+      子模块仍需各自声明需要哪些依赖，但不写 <version>，由此处填充。
+
+      好处：
+        1. 升级只改这一处；
+        2. 同一依赖在多个模块自动保持一致（例如 hutool-all、MCP starter）；
+        3. 子模块 pom 只剩「用了什么」，不再夹带版本信息，职责更清晰。
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <!-- ==================== Spring AI ==================== -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-starter-model-openai</artifactId>
+                <version>${spring-ai.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-starter-model-chat-memory-repository-jdbc</artifactId>
+                <version>${spring-ai.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
+                <version>${spring-ai.version}</version>
+            </dependency>
+            <!-- lion-agent-app（自身对外提供 MCP 服务）与 lion-mcp-server（演示）都用这个 starter -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+                <version>${spring-ai.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-starter-tool-search-advisor</artifactId>
+                <version>${spring-ai.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-starter-vector-store-milvus</artifactId>
+                <version>${spring-ai.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-pdf-document-reader</artifactId>
+                <version>${spring-ai.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-tika-document-reader</artifactId>
+                <version>${spring-ai-tika.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-retry</artifactId>
+                <version>${spring-ai.version}</version>
+            </dependency>
+
+            <!-- ==================== 持久化 / 权限 ==================== -->
+            <dependency>
+                <groupId>com.baomidou</groupId>
+                <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+                <version>${mybatis-plus.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.baomidou</groupId>
+                <artifactId>mybatis-plus-jsqlparser</artifactId>
+                <version>${mybatis-plus.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.dev33</groupId>
+                <artifactId>sa-token-spring-boot4-starter</artifactId>
+                <version>${sa-token.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.dev33</groupId>
+                <artifactId>sa-token-redisson-spring-boot-starter</artifactId>
+                <version>${sa-token.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.redisson</groupId>
+                <artifactId>redisson-spring-boot-starter</artifactId>
+                <version>${redisson.version}</version>
+            </dependency>
+
+            <!-- ==================== 工具 / API 文档 ==================== -->
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-core</artifactId>
+                <version>${resilience4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-spring-boot4</artifactId>
+                <version>${resilience4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
+            </dependency>
+            <!-- 显式钉版本：springdoc 依赖它，但 spring-ai-client-chat 会传递一个不兼容的版本进来 -->
+            <dependency>
+                <groupId>io.swagger.core.v3</groupId>
+                <artifactId>swagger-annotations-jakarta</artifactId>
+                <version>${swagger-annotations.version}</version>
+            </dependency>
+            <!-- 三个模块都用：JWT 签发（lion-agent-app）/ 验签（lion-mcp-server）/ JSON（lion-a2a-server） -->
+            <dependency>
+                <groupId>cn.hutool</groupId>
+                <artifactId>hutool-all</artifactId>
+                <version>${hutool.version}</version>
+            </dependency>
+
+            <!-- ==================== 集成 / Agent 扩展 ==================== -->
+            <dependency>
+                <groupId>io.github.guoshiqiufeng.dify</groupId>
+                <artifactId>dify-spring-boot4-starter</artifactId>
+                <version>${dify.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springaicommunity</groupId>
+                <artifactId>spring-ai-agent-utils</artifactId>
+                <version>${agent-utils.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springaicommunity</groupId>
+                <artifactId>spring-ai-agent-utils-common</artifactId>
+                <version>${agent-utils.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springaicommunity</groupId>
+                <artifactId>spring-ai-agent-utils-a2a</artifactId>
+                <version>${agent-utils.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springaicommunity</groupId>
+                <artifactId>spring-ai-starter-typesafe</artifactId>
+                <version>${typesafe.version}</version>
+            </dependency>
+            <!-- A2A 协议类型：lion-a2a-server 直接用，spring-ai-agent-utils-a2a 也会传递引入 -->
+            <dependency>
+                <groupId>io.github.a2asdk</groupId>
+                <artifactId>a2a-java-sdk-spec</artifactId>
+                <version>${a2a-sdk.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <!--
       构建产物位置约定（下移后各自独立，互不覆盖）：

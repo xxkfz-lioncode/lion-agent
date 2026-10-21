@@ -21,29 +21,7 @@
     <name>lion-agent-app</name>
     <description>Lion Agent 智能问答系统后端</description>
 
-    <!--
-      同级目录 lion-mcp-server 是独立的 Maven 项目，没有列在这里，原因：
-
-      Maven 规定聚合器（有 <modules> 的项目）必须是 <packaging>pom</packaging>，
-      而本模块是 Spring Boot 应用，要打成可执行 jar，两者不能兼得
-      （实测报错：Aggregator projects require 'pom' as packaging）。
-
-      所以两者是「物理上放在同一目录、构建各自独立」的关系：
-      分别 mvn 构建即可，互不影响，也不会把 MCP Server 的依赖混进主应用。
-      若将来要真正的父子聚合，需要把本模块的代码整体下移一层目录，
-      再在根目录建一个 packaging=pom 的聚合 pom。
-    -->
-
-    <properties>
-        <java.version>21</java.version>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!-- 第三方组件版本（与 Spring Boot 4.x 兼容） -->
-        <mybatis-plus.version>3.5.17</mybatis-plus.version>
-        <sa-token.version>1.45.0</sa-token.version>
-        <spring-ai.version>2.0.1</spring-ai.version>
-    </properties>
+    <!-- 编译属性和所有依赖版本都继承自 lion-parent（见 ../pom.xml），这里只声明哪些依赖要用 -->
 
     <dependencies>
         <!-- ==================== Web ==================== -->
@@ -60,13 +38,11 @@
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
-            <version>${mybatis-plus.version}</version>
         </dependency>
         <!-- 3.5.9+ 起 PaginationInnerInterceptor 被拆到本模块，未引入则分页拦截器不可用（total 恒为 0） -->
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-jsqlparser</artifactId>
-            <version>${mybatis-plus.version}</version>
         </dependency>
         <dependency>
             <groupId>com.mysql</groupId>
@@ -78,26 +54,22 @@
         <dependency>
             <groupId>org.redisson</groupId>
             <artifactId>redisson-spring-boot-starter</artifactId>
-            <version>4.7.0</version>
         </dependency>
 
         <!-- ==================== Sa-Token（Spring Boot 4 适配版）+ Redisson 会话持久化 ==================== -->
         <dependency>
             <groupId>cn.dev33</groupId>
             <artifactId>sa-token-spring-boot4-starter</artifactId>
-            <version>${sa-token.version}</version>
         </dependency>
         <dependency>
             <groupId>cn.dev33</groupId>
             <artifactId>sa-token-redisson-spring-boot-starter</artifactId>
-            <version>${sa-token.version}</version>
         </dependency>
 
         <!-- ==================== Spring AI（2.x 适配 Spring Boot 4），通过千问 OpenAI 兼容接口接入 ==================== -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-openai</artifactId>
-            <version>${spring-ai.version}</version>
             <exclusions>
                 <!-- 排除 openai-java-core 传递引入的 javax 版 swagger-annotations 2.2.31：
                      它与 springdoc 需要的 jakarta 版 swagger-annotations-jakarta 2.2.52 包名(FQCN)完全相同，
@@ -113,36 +85,30 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-chat-memory-repository-jdbc</artifactId>
-            <version>${spring-ai.version}</version>
         </dependency>
         <!-- MCP：客户端（WebFlux）+ 服务端（WebMvc） -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
-            <version>${spring-ai.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
-            <version>${spring-ai.version}</version>
         </dependency>
         <!-- 工具搜索顾问 ToolSearchToolCallingAdvisor-->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-tool-search-advisor</artifactId>
-            <version>${spring-ai.version}</version>
         </dependency>
 
         <!-- Resilience4j 熔断器：防止外部服务故障级联拖垮整个应用 -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
             <artifactId>resilience4j-core</artifactId>
-            <version>2.4.0</version>
         </dependency>
         <dependency>
             <groupId>io.github.resilience4j</groupId>
             <artifactId>resilience4j-spring-boot4</artifactId>
-            <version>2.4.0</version>
         </dependency>
 
         <!-- Spring Boot Actuator 提供观测支持 -->
@@ -162,27 +128,23 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-tika-document-reader</artifactId>
-            <version>2.0.0</version>
         </dependency>
 
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-pdf-document-reader</artifactId>
-            <version>${spring-ai.version}</version>
         </dependency>
 
         <!-- ==================== 向量数据库（Milvus） ==================== -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-vector-store-milvus</artifactId>
-            <version>${spring-ai.version}</version>
         </dependency>
 
         <!-- ==================== 接口文档：springdoc-openapi（Spring Boot 4） ==================== -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>3.1.0</version>
         </dependency>
         <!-- 版本对齐修复：spring-ai-client-chat 按就近原则传递了 swagger-annotations-jakarta 2.2.38，
              覆盖了 springdoc 3.1.0 所需版本，导致运行时缺少 Schema.$dynamicRef() 抛 NoSuchMethodError。
@@ -190,7 +152,6 @@
         <dependency>
             <groupId>io.swagger.core.v3</groupId>
             <artifactId>swagger-annotations-jakarta</artifactId>
-            <version>2.2.52</version>
         </dependency>
 
         <!-- ==================== 密码加密：仅引入 spring-security-crypto，不含完整安全框架 ==================== -->
@@ -208,7 +169,6 @@
         <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>
-            <version>5.8.35</version>
         </dependency>
         <!-- AOP 切面编程（Spring Boot 4 不再提供 spring-boot-starter-aop，直接用 AspectJ 依赖） -->
         <dependency>
@@ -225,7 +185,6 @@
         <dependency>
             <groupId>io.github.guoshiqiufeng.dify</groupId>
             <artifactId>dify-spring-boot4-starter</artifactId>
-            <version>2.3.3</version>
         </dependency>
         <!-- ==================== spring-ai-agent-utils：Claude Code 式 Agent 能力 ==================== -->
         <!-- 核心工具包：TodoWrite（任务清单）、Task/TaskOutput（子 Agent 派活与取结果）、
@@ -233,34 +192,29 @@
         <dependency>
             <groupId>org.springaicommunity</groupId>
             <artifactId>spring-ai-agent-utils</artifactId>
-            <version>0.12.0</version>
         </dependency>
         <!-- 公共抽象与工具：SubagentDefinition/Resolver/Executor、TaskCall、TaskRepository 等接口，
              自定义子 Agent（如 com.lion.agent.agent.tool.DemoSubagents）时需要依赖它 -->
         <dependency>
             <groupId>org.springaicommunity</groupId>
             <artifactId>spring-ai-agent-utils-common</artifactId>
-            <version>0.12.0</version>
         </dependency>
         <!-- A2A 协议扩展：把远程 Agent 包装成本地子 Agent（A2ASubagentResolver/Executor），
              内部依赖 a2a-java-sdk（0.3.3.Final）。跨进程多 Agent 编排用它 -->
         <dependency>
             <groupId>org.springaicommunity</groupId>
             <artifactId>spring-ai-agent-utils-a2a</artifactId>
-            <version>0.12.0</version>
         </dependency>
         <!-- Spring AI 重试模块：提供 RetryUtils / RetryTemplate / RetryPolicy 三个类 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-retry</artifactId>
-            <version>${spring-ai.version}</version>
         </dependency>
         <!-- TypeSafe：JEV 判断模型客户端，用于意图识别 / 分类 / 评分等轻量判断任务。
          https://console.typesafe.ai/usage-->
         <dependency>
             <groupId>org.springaicommunity</groupId>
             <artifactId>spring-ai-starter-typesafe</artifactId>
-            <version>0.2.0</version>
         </dependency>
     </dependencies>
 
