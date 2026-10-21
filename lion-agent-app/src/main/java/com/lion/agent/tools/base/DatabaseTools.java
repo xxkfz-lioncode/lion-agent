@@ -3,7 +3,7 @@ package com.lion.agent.tools.base;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import com.lion.agent.tools.support.SqlGuard;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;

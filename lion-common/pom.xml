@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- parent 指向根聚合 pom，编译属性与依赖版本统一由它提供 -->
+    <parent>
+        <groupId>com.lion</groupId>
+        <artifactId>lion-parent</artifactId>
+        <version>1.0.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <groupId>com.lion</groupId>
+    <artifactId>lion-common</artifactId>
+    <version>1.0.0</version>
+    <name>lion-common</name>
+    <description>公共模块：统一响应封装（R / PageResult / ResultCode）、业务异常、通用常量与枚举、无业务依赖的工具</description>
+
+    <!--
+      刻意保持「零强制依赖」：本模块只依赖 lombok，不引入 Spring / MyBatis-Plus /
+      Redis / Sa-Token / Spring AI。原因是所有业务模块都会依赖它，一旦把某个框架
+      带进来，就会传递给每一个使用方，公共模块的价值反而变成耦合源。
+
+      将来若要放入需要 Spring Web 的组件（如 @RestControllerAdvice 的全局异常处理），
+      请把对应依赖声明为 <optional>true</optional>，让使用方自行决定是否引入。
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+</project>

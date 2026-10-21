@@ -1,6 +1,6 @@
 package com.lion.agent.controller.system;
 
-import com.lion.agent.common.result.R;
+import com.lion.common.result.R;
 import com.lion.agent.pojo.dto.LoginRequest;
 import com.lion.agent.pojo.dto.RegisterRequest;
 import com.lion.agent.pojo.dto.UpdatePasswordRequest;

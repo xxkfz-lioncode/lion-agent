@@ -2,7 +2,7 @@ package com.lion.agent.service.support;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.lion.agent.common.constants.AdvisorConstants;
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import com.lion.agent.config.PromptConfig;
 import com.lion.agent.service.ModelConfigService;
 import com.lion.agent.service.ToolRegistryService;

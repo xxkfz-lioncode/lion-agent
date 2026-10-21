@@ -2,13 +2,13 @@ package com.lion.agent.service.impl;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.lion.agent.common.result.ResultCode;
+import com.lion.common.result.ResultCode;
 import com.lion.agent.pojo.dto.LoginRequest;
 import com.lion.agent.pojo.dto.RegisterRequest;
 import com.lion.agent.pojo.dto.UpdatePasswordRequest;
 import com.lion.agent.pojo.dto.UpdateProfileRequest;
 import com.lion.agent.pojo.entity.User;
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import com.lion.agent.mapper.UserMapper;
 import com.lion.agent.service.UserService;
 import lombok.RequiredArgsConstructor;

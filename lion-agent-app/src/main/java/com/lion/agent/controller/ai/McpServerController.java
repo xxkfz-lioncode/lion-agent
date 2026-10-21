@@ -1,6 +1,6 @@
 package com.lion.agent.controller.ai;
 
-import com.lion.agent.common.result.R;
+import com.lion.common.result.R;
 import com.lion.agent.pojo.dto.McpServerRequest;
 import com.lion.agent.service.McpServerService;
 import com.lion.agent.service.ToolRegistryService;

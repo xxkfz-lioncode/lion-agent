@@ -1,6 +1,6 @@
 package com.lion.agent.service;
 
-import com.lion.agent.common.result.PageResult;
+import com.lion.common.result.PageResult;
 import com.lion.agent.pojo.entity.ChatMessage;
 import com.lion.agent.pojo.vo.ChatRecordStatsVo;
 import com.lion.agent.pojo.vo.ConversationRecordVo;

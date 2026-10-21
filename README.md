@@ -224,12 +224,16 @@
 
 ```
 lion-agent/                   # 聚合工程根（packaging=pom，Maven 多模块）
-├── pom.xml                   # lion-parent：modules = lion-agent-app / lion-mcp-server / lion-a2a-server
-│                             # 统一 Java 21、Spring Boot 4.0.7、Spring AI 2.0.1（目录名与 artifactId 一致）
+├── pom.xml                   # lion-parent：modules = lion-common / lion-agent-app / lion-mcp-server / lion-a2a-server
+│                             # 统一管理 Java 21、Spring Boot 4.0.7、Spring AI 2.0.1 及所有第三方依赖版本
+├── lion-common/              # 公共模块（零框架依赖，只依赖 lombok），被所有业务模块引用
+│   ├── result/               # R（统一响应）、PageResult（分页）、ResultCode（状态码）
+│   └── exception/            # BusinessException（业务异常）
 ├── lion-agent-app/           # 主应用（Spring Boot 后端）
 │   ├── src/main/java/com/lion/agent/
 │   │   ├── advisor/            # Advisor 链：TokenUsage / ConversationSummary / QaCache / Memory 注入
-│   │   ├── common/             # Result、PageResult、枚举、异步队列组件（async/：RedisTaskQueue + AbstractRedisTaskConsumer）
+│   │   ├── common/             # 业务公共：枚举、常量、全局异常处理器、异步队列（async/：RedisTaskQueue + AbstractRedisTaskConsumer）、中间件工具
+│   │   │                       # 注：响应封装与业务异常已抽到 lion-common，此处 exception/ 只剩 GlobalExceptionHandler
 │   │   ├── config/             # AiConfig、PromptConfig（st 模板）、SaTokenConfig、线程池等
 │   │   ├── controller/         # Auth / Chat / Conversation / Knowledge / Document / Memory / Skill / TokenUsage
 │   │   │   └── test/           # LangfuseTestController（评分/摄取手工调试）

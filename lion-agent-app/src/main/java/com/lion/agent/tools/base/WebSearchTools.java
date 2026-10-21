@@ -6,7 +6,7 @@ import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;

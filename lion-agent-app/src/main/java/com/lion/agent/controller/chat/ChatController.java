@@ -1,7 +1,7 @@
 package com.lion.agent.controller.chat;
 
 import cn.dev33.satoken.annotation.SaIgnore;
-import com.lion.agent.common.result.R;
+import com.lion.common.result.R;
 import com.lion.agent.pojo.dto.ChatRequest;
 import com.lion.agent.service.ChatService;
 import com.lion.agent.pojo.vo.ChatResult;

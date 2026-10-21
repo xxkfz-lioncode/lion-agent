@@ -1,7 +1,7 @@
 package com.lion.agent.controller.system;
 
-import com.lion.agent.common.result.PageResult;
-import com.lion.agent.common.result.R;
+import com.lion.common.result.PageResult;
+import com.lion.common.result.R;
 import com.lion.agent.pojo.dto.SensitiveWordBatchRequest;
 import com.lion.agent.pojo.dto.SensitiveWordRequest;
 import com.lion.agent.pojo.entity.SensitiveWordEntity;

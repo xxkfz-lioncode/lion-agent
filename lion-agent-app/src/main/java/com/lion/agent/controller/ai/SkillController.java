@@ -2,8 +2,8 @@ package com.lion.agent.controller.ai;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
-import com.lion.agent.common.result.PageResult;
-import com.lion.agent.common.result.R;
+import com.lion.common.result.PageResult;
+import com.lion.common.result.R;
 import com.lion.agent.pojo.dto.SkillRequest;
 import com.lion.agent.pojo.entity.Skill;
 import com.lion.agent.service.SkillService;

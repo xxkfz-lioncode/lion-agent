@@ -3,7 +3,7 @@ package com.lion.agent.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.lion.agent.common.result.PageResult;
+import com.lion.common.result.PageResult;
 import com.lion.agent.pojo.entity.TokenUsage;
 import com.lion.agent.mapper.ConversationMapper;
 import com.lion.agent.mapper.TokenUsageMapper;

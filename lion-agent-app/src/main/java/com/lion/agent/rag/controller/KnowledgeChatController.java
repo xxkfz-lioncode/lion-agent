@@ -1,6 +1,6 @@
 package com.lion.agent.rag.controller;
 
-import com.lion.agent.common.result.R;
+import com.lion.common.result.R;
 import com.lion.agent.rag.dto.KnowledgeChatRequest;
 import com.lion.agent.pojo.vo.ChatResult;
 import com.lion.agent.rag.service.KnowledgeChatService;

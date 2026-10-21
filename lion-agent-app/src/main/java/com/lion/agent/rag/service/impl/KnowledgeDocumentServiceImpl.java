@@ -2,14 +2,14 @@ package com.lion.agent.rag.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.lion.agent.common.result.PageResult;
+import com.lion.common.result.PageResult;
 import com.lion.agent.common.async.RedisTaskQueue;
 import com.lion.agent.common.enums.DocumentStatus;
 import com.lion.agent.common.enums.VectorType;
 import com.lion.agent.common.utils.LazyMilvusVectorStoreUtils;
 import com.lion.agent.rag.dto.DocumentProcessTask;
 import com.lion.agent.rag.entity.KnowledgeDocument;
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import com.lion.agent.rag.mapper.KnowledgeDocumentMapper;
 import com.lion.agent.rag.service.KnowledgeBaseService;
 import com.lion.agent.rag.service.KnowledgeDocumentService;

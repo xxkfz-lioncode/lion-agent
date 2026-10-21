@@ -24,6 +24,12 @@
     <!-- 编译属性和所有依赖版本都继承自 lion-parent（见 ../pom.xml），这里只声明哪些依赖要用 -->
 
     <dependencies>
+        <!-- ==================== 本工程公共模块：统一响应封装与业务异常 ==================== -->
+        <dependency>
+            <groupId>com.lion</groupId>
+            <artifactId>lion-common</artifactId>
+        </dependency>
+
         <!-- ==================== Web ==================== -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

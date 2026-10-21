@@ -1,4 +1,4 @@
-package com.lion.agent.common.result;
+package com.lion.common.result;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

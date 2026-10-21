@@ -1,7 +1,7 @@
 package com.lion.agent.controller.ai;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
-import com.lion.agent.common.result.R;
+import com.lion.common.result.R;
 import com.lion.agent.pojo.dto.PromptTemplateRequest;
 import com.lion.agent.service.PromptTemplateService;
 import com.lion.agent.pojo.vo.PromptTemplateVo;

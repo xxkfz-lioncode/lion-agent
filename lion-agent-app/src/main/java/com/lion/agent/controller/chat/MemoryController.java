@@ -1,7 +1,7 @@
 package com.lion.agent.controller.chat;
 
 import cn.dev33.satoken.stp.StpUtil;
-import com.lion.agent.common.result.R;
+import com.lion.common.result.R;
 import com.lion.agent.pojo.entity.AiMemory;
 import com.lion.agent.service.MemoryService;
 import io.swagger.v3.oas.annotations.Operation;

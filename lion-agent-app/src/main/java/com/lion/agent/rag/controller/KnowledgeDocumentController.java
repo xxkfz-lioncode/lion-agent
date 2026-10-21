@@ -2,8 +2,8 @@ package com.lion.agent.rag.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
-import com.lion.agent.common.result.PageResult;
-import com.lion.agent.common.result.R;
+import com.lion.common.result.PageResult;
+import com.lion.common.result.R;
 import com.lion.agent.rag.entity.KnowledgeDocument;
 import com.lion.agent.rag.service.KnowledgeDocumentService;
 import io.swagger.v3.oas.annotations.Operation;

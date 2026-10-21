@@ -1,6 +1,6 @@
 package com.lion.agent.dify.controller;
 
-import com.lion.agent.common.result.R;
+import com.lion.common.result.R;
 import com.lion.agent.dify.dto.DifyChatSendDTO;
 import com.lion.agent.dify.dto.DifyFeedbackDTO;
 import com.lion.agent.dify.dto.DifyRenameDTO;

@@ -2,8 +2,9 @@ package com.lion.agent.common.exception;
 
 import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
-import com.lion.agent.common.result.R;
-import com.lion.agent.common.result.ResultCode;
+import com.lion.common.exception.BusinessException;
+import com.lion.common.result.R;
+import com.lion.common.result.ResultCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;

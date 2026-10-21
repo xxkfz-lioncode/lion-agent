@@ -1,7 +1,7 @@
 package com.lion.agent.controller.chat;
 
-import com.lion.agent.common.result.PageResult;
-import com.lion.agent.common.result.R;
+import com.lion.common.result.PageResult;
+import com.lion.common.result.R;
 import com.lion.agent.pojo.entity.ChatMessage;
 import com.lion.agent.pojo.vo.ChatRecordStatsVo;
 import com.lion.agent.pojo.vo.ConversationRecordVo;

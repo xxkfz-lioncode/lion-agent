@@ -1,6 +1,6 @@
 package com.lion.agent.dify.controller;
 
-import com.lion.agent.common.result.R;
+import com.lion.common.result.R;
 import com.lion.agent.dify.dto.DifyDatasetCreateDTO;
 import com.lion.agent.dify.dto.DifyDocTextDTO;
 import com.lion.agent.dify.service.DifyDatasetService;

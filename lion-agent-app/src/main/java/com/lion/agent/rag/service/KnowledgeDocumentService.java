@@ -1,6 +1,6 @@
 package com.lion.agent.rag.service;
 
-import com.lion.agent.common.result.PageResult;
+import com.lion.common.result.PageResult;
 import com.lion.agent.rag.entity.KnowledgeDocument;
 import org.springframework.web.multipart.MultipartFile;
 

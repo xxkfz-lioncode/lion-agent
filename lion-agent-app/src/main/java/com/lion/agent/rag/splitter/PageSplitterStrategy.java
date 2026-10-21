@@ -1,6 +1,6 @@
 package com.lion.agent.rag.splitter;
 
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.ExtractedTextFormatter;

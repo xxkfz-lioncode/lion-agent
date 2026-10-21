@@ -2,8 +2,8 @@ package com.lion.agent.rag.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
-import com.lion.agent.common.result.PageResult;
-import com.lion.agent.common.result.R;
+import com.lion.common.result.PageResult;
+import com.lion.common.result.R;
 import com.lion.agent.rag.dto.KnowledgeBaseRequest;
 import com.lion.agent.rag.entity.KnowledgeBase;
 import com.lion.agent.rag.vo.KnowledgeBaseVo;

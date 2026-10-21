@@ -1,6 +1,6 @@
 package com.lion.agent.service.support;
 
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import com.lion.agent.mapper.ChatMessageMapper;
 import com.lion.agent.mapper.ConversationMapper;
 import com.lion.agent.pojo.entity.ChatMessage;

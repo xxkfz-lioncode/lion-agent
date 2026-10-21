@@ -3,7 +3,7 @@ package com.lion.agent.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.lion.agent.pojo.dto.PromptTemplateRequest;
 import com.lion.agent.pojo.entity.PromptTemplateEntity;
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import com.lion.agent.mapper.PromptTemplateMapper;
 import com.lion.agent.service.PromptTemplateService;
 import com.lion.agent.pojo.vo.PromptTemplateVo;

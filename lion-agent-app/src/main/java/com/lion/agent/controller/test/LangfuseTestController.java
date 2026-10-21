@@ -1,6 +1,6 @@
 package com.lion.agent.controller.test;
 
-import com.lion.agent.common.result.R;
+import com.lion.common.result.R;
 import com.lion.agent.common.utils.LangfuseIngestClientUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

@@ -1,6 +1,6 @@
 package com.lion.agent.dify.controller;
 
-import com.lion.agent.common.result.R;
+import com.lion.common.result.R;
 import com.lion.agent.dify.service.DifyAppService;
 import com.lion.agent.dify.vo.DifyAppVO;
 import com.lion.agent.dify.vo.DifyFlowGraphVO;

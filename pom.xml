@@ -24,6 +24,11 @@
     <description>聚合工程：主应用（lion-agent-app）、MCP Server 演示（lion-mcp-server）、A2A Server</description>
 
     <modules>
+        <!--
+          公共模块：无框架依赖，被下面所有业务模块引用。
+          必须排在最前，Maven 会按依赖顺序把它先装进 reactor。
+        -->
+        <module>lion-common</module>
         <!-- 主应用：Spring Boot 后端（原根目录下的 src + pom） -->
         <module>lion-agent-app</module>
         <!-- MCP 传输演示：同一份代码支持 stdio 与 streamable-http -->
@@ -79,6 +84,14 @@
     -->
     <dependencyManagement>
         <dependencies>
+            <!-- ==================== 本工程内部模块 ====================
+                 version 用 ${project.version}：随聚合工程版本统一升级，无需逐个改 -->
+            <dependency>
+                <groupId>com.lion</groupId>
+                <artifactId>lion-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
             <!-- ==================== Spring AI ==================== -->
             <dependency>
                 <groupId>org.springframework.ai</groupId>

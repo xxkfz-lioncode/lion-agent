@@ -1,7 +1,7 @@
 package com.lion.agent.dify.service.impl;
 
 
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import com.lion.agent.dify.dto.DifyDatasetCreateDTO;
 import com.lion.agent.dify.dto.DifyDocTextDTO;
 import com.lion.agent.dify.service.DifyDatasetService;

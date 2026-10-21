@@ -5,7 +5,7 @@ import com.lion.agent.pojo.dto.McpServerRequest;
 import com.lion.agent.pojo.entity.McpServerEntity;
 import com.lion.agent.pojo.entity.McpServerToolEntity;
 import com.lion.agent.event.McpServerChangedEvent;
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import cn.hutool.json.JSONUtil;
 import com.lion.agent.mapper.McpServerMapper;
 import com.lion.agent.mapper.McpServerToolMapper;

@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
  *
  * <p>核心是分页拦截器：没有它，{@code mapper.selectPage(page, wrapper)} 只会执行主查询，
  * 不会执行 COUNT(*) 统计，导致 {@code page.getTotal()} 恒为 0（列表有数据但 total=0、
- * 分页条不显示）。所有返回 {@link com.lion.agent.common.result.PageResult} 的接口都依赖此配置。</p>
+ * 分页条不显示）。所有返回 {@link com.lion.common.result.PageResult} 的接口都依赖此配置。</p>
  */
 @Configuration
 public class MybatisPlusConfig {

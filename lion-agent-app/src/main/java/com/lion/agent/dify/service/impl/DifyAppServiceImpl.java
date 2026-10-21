@@ -1,7 +1,7 @@
 package com.lion.agent.dify.service.impl;
 
 import cn.hutool.core.util.StrUtil;
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import com.lion.agent.dify.service.DifyAppService;
 import com.lion.agent.dify.vo.DifyAppVO;
 import com.lion.agent.dify.vo.DifyFlowGraphVO;

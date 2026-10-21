@@ -1,7 +1,7 @@
 package com.lion.agent.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.lion.agent.common.exception.BusinessException;
+import com.lion.common.exception.BusinessException;
 import com.lion.agent.mapper.ModelConfigMapper;
 import com.lion.agent.pojo.dto.ModelConfigRequest;
 import com.lion.agent.pojo.entity.ModelConfigEntity;

@@ -2,8 +2,8 @@ package com.lion.agent.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.lion.agent.common.exception.BusinessException;
-import com.lion.agent.common.result.PageResult;
+import com.lion.common.exception.BusinessException;
+import com.lion.common.result.PageResult;
 import com.lion.agent.mapper.SensitiveWordMapper;
 import com.lion.agent.pojo.dto.SensitiveWordBatchRequest;
 import com.lion.agent.pojo.dto.SensitiveWordRequest;

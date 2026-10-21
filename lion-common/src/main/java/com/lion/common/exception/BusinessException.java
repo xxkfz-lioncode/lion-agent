@@ -1,6 +1,6 @@
-package com.lion.agent.common.exception;
+package com.lion.common.exception;
 
-import com.lion.agent.common.result.ResultCode;
+import com.lion.common.result.ResultCode;
 import lombok.Getter;
 
 /**
