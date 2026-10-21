@@ -20,7 +20,9 @@ rem Default spring profile (overridable by first argument)
 set "DEFAULT_PROFILE=dev"
 rem Default JVM options; external env JAVA_OPTS takes precedence
 set "DEFAULT_JAVA_OPTS=-Xms512m -Xmx1024m -Dfile.encoding=UTF-8"
-rem Jar path relative to project root; leave empty to auto-detect newest jar in target\
+rem Module dir holding the jar (multi-module layout); empty for a single-module root
+set "APP_MODULE_DIR=lion-agent-app"
+rem Jar path relative to project root; leave empty to auto-detect newest jar in <module>\target\
 set "JAR_FILE="
 rem Maven goals used when the jar is missing
 set "BUILD_GOALS=-B clean package -DskipTests"
@@ -57,11 +59,12 @@ set "PORT=%~2"
 if defined PORT (set "PORT_ARG=--server.port=%PORT%") else (set "PORT_ARG=")
 
 rem ---------- 3. Locate jar ----------
+set "JAR_DIR=%ROOT%\%APP_MODULE_DIR%\target"
 set "JAR="
 if defined JAR_FILE set "JAR=%ROOT%\%JAR_FILE%"
 if not defined JAR (
-    for /f "delims=" %%J in ('dir /b /a-d /o-d "target\*.jar" 2^>nul') do (
-        if not defined JAR if /i not "%%~xJ"==".original" set "JAR=%ROOT%\target\%%J"
+    for /f "delims=" %%J in ('dir /b /a-d /o-d "%JAR_DIR%\*.jar" 2^>nul') do (
+        if not defined JAR if /i not "%%~xJ"==".original" set "JAR=%JAR_DIR%\%%J"
     )
 )
 
@@ -80,13 +83,13 @@ if not defined JAR (
     if defined JAR_FILE (
         set "JAR=%ROOT%\%JAR_FILE%"
     ) else (
-        for /f "delims=" %%J in ('dir /b /a-d /o-d "target\*.jar" 2^>nul') do (
-            if not defined JAR if /i not "%%~xJ"==".original" set "JAR=%ROOT%\target\%%J"
+        for /f "delims=" %%J in ('dir /b /a-d /o-d "%JAR_DIR%\*.jar" 2^>nul') do (
+            if not defined JAR if /i not "%%~xJ"==".original" set "JAR=%JAR_DIR%\%%J"
         )
     )
 )
 if not defined JAR (
-    echo [ERROR] No jar found under target\. Build the project first.
+    echo [ERROR] No jar found under %JAR_DIR%. Build the project first.
     pause
     exit /b 1
 )

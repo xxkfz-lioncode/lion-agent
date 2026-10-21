@@ -46,7 +46,7 @@ services:
       - --collation-server=utf8mb4_unicode_ci
     volumes:
       # 首次启动自动执行建库建表脚本（init.sql 内含 CREATE DATABASE / USE，幂等）
-      - ./src/main/resources/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./docs/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - mysql-data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$$MYSQL_ROOT_PASSWORD"]
@@ -145,7 +145,7 @@ services:
     image: lion-agent-backend:1.0.0
     container_name: lion-backend
     restart: unless-stopped
-    # 镜像内不做编译：先本机 mvn -B clean package -DskipTests 打好 target/*.jar，再构建镜像
+    # 镜像内不做编译：先本机 mvn -B clean package -DskipTests 打好 lion-agent-app/target/*.jar，再构建镜像
     build:
       context: .
       dockerfile: Dockerfile
@@ -210,7 +210,7 @@ services:
     container_name: lion-frontend
     restart: unless-stopped
     build:
-      context: ./frontend
+      context: ./lion-frontend
       dockerfile: Dockerfile
     environment:
       TZ: Asia/Shanghai

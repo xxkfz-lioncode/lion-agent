@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: lion-mcp-server
+
+  profiles:
+    active: http
+
+  ai:
+    mcp:
+      server:
+        # 对外暴露的服务名/版本，客户端连上后能看到
+        name: lion-demo-mcp-server
+        version: 1.0.0
+        # SYNC：工具方法同步返回（本示例全部是同步方法）
+        # 若工具返回 Mono/Flux 做流式输出，这里改 ASYNC
+        type: SYNC
+        # 扫描 @McpTool / @McpResource / @McpPrompt 注解并自动注册
+        annotation-scanner:
+          enabled: true
+
+# 校验 lion-agent 签发的调用凭据（见 whoAmI 工具）
+# 密钥必须与 lion-agent 的 lion.mcp.auth.secret 完全一致，否则校验失败
+mcp:
+  auth:
+    secret: ${LION_MCP_AUTH_SECRET:123456789abcdefghijkli}
+    issuer: lion-agent
+
+# 传输方式（stdio / streamable-http）由 profile 决定：
+#   --spring.profiles.active=stdio  → application-stdio.yml
+#   --spring.profiles.active=http   → application-http.yml
+# 两种方式共用上面的工具定义，无需改代码。

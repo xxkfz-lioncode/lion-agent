@@ -15,7 +15,8 @@ if not exist "%JAVA_HOME%\bin\java.exe" (
 echo Using JAVA_HOME=%JAVA_HOME%
 "%JAVA_HOME%\bin\java.exe" -version
 
-call mvn clean package -DskipTests
+rem Multi-module: build the app module and its parent only, skip lion-mcp-server / lion-a2a-server
+call mvn -B clean package -DskipTests -pl lion-agent-app -am
 if errorlevel 1 (
     echo.
     echo [ERROR] Backend build FAILED.
@@ -23,6 +24,6 @@ if errorlevel 1 (
     exit /b 1
 )
 echo.
-echo Backend build completed. Output: target/lion-agent-1.0.0.jar
+echo Backend build completed. Output: lion-agent-app/target/lion-agent-app-1.0.0.jar
 echo.
 pause

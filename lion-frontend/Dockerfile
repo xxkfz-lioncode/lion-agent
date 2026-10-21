@@ -1,8 +1,8 @@
 # ============================================================
 # 前端镜像：Vite 构建静态资源 + Nginx 托管并反代 /api 到后端
 #
-# 构建（上下文是 frontend 目录）：
-#   docker build -t lion-agent-frontend:1.0.0 ./frontend
+# 构建（上下文是 lion-frontend 目录）：
+#   docker build -t lion-agent-frontend:1.0.0 ./lion-frontend
 #   如需自定义构建期接口地址：--build-arg VITE_API_BASE_URL=/api
 #
 # 运行：

@@ -1,10 +1,10 @@
 # ============================================================
 # 后端镜像：Spring Boot 4 + JDK 21（只含 JRE，jar 由外部提前打包好）
 #
-# 前置步骤：先在本机打包（或用 bin/package-backend.bat），产出 target/*.jar
+# 前置步骤：先在本机打包（或用 bin/package-backend.bat），产出 lion-agent-app/target/*.jar
 #   mvn -B clean package -DskipTests
 #
-# 构建镜像（构建上下文必须是项目根目录，因为要读 target/*.jar）：
+# 构建镜像（构建上下文必须是项目根目录，因为要读 lion-agent-app/target/*.jar）：
 #   docker build -t lion-agent-backend:1.0.0 .
 #
 # 运行（更推荐 docker compose --profile app up -d，见 docker-compose.yml）：
@@ -33,9 +33,9 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 WORKDIR /app
 
-# 拷入本机已打好的可执行 jar（target/*.jar 只匹配 fat jar，不含 .jar.original；
+# 拷入本机已打好的可执行 jar（lion-agent-app/target/*.jar 只匹配 fat jar，不含 .jar.original；
 # 若目录里有多个 jar，请把通配符换成确切文件名）
-COPY target/*.jar /app/app.jar
+COPY lion-agent-app/target/*.jar /app/app.jar
 
 # 上传文件持久化目录（知识库文档 / 多模态图片）
 RUN mkdir -p /app/upload && chmod 755 /app/upload

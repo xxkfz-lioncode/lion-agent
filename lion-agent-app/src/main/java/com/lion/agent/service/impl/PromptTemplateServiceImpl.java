@@ -65,7 +65,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 //            refreshFromFiles();
         } catch (Exception e) {
             // 表不存在（未执行 init.sql）等场景不阻塞启动，运行时操作会给出明确报错
-            log.warn("初始化提示词模板表失败：{}（请确认已执行 resources/db/init.sql）", e.getMessage());
+            log.warn("初始化提示词模板表失败：{}（请确认已执行 docs/db/init.sql）", e.getMessage());
         }
     }
 

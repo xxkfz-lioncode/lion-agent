@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- parent 指向根聚合 pom，与主应用共用同一套 Spring Boot / Spring AI 版本 -->
+    <parent>
+        <groupId>com.lion</groupId>
+        <artifactId>lion-parent</artifactId>
+        <version>1.0.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <groupId>com.lion</groupId>
+    <artifactId>lion-mcp-server</artifactId>
+    <version>1.0.0</version>
+    <name>lion-mcp-server</name>
+    <description>MCP Server 演示项目：同一份代码同时支持 stdio 与 streamable-http 两种传输</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- 与 lion-agent 保持同一版本，避免协议/序列化差异 -->
+        <spring-ai.version>2.0.1</spring-ai.version>
+    </properties>
+
+    <dependencies>
+        <!--
+          MCP Server（WebMvc 传输：streamable-http / SSE）。
+
+          为什么只用这一个 starter 就能同时支持 stdio：
+          stdio 传输的实现在 spring-ai-mcp-server-common（本 starter 已传递引入），不依赖 Servlet 容器；
+          HTTP 传输才需要 WebMvc。因此「stdio 模式」只需把 Web 容器关掉
+          （spring.main.web-application-type=none + spring.ai.mcp.server.stdio=true），
+          同一份代码、同一个 jar，靠 profile 切换即可，不需要打两个包。
+        -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+            <version>${spring-ai.version}</version>
+        </dependency>
+        <!-- 校验 lion-agent 签发的 JWT 凭据（Hutool 的 JWT + HMac） -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+            <version>5.8.35</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <!-- 固定 jar 名：stdio 配置里写的是路径，带版本号会导致升级后路径失效 -->
+        <finalName>lion-mcp-server</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

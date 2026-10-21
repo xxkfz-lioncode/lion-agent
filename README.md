@@ -138,7 +138,7 @@
 | 工具 | Hutool（JSON 序列化）、Resilience4j（熔断）、springdoc-openapi（Swagger UI） |
 | 远程工具 | MCP（本服务提供 streamable-http Server，同时以 Streamable HTTP Client 接入第三方 MCP Server） |
 | 可观测性 | Actuator + OpenTelemetry → Langfuse（OTLP）；自研 `LangfuseIngestClient` 原生摄取（评分 / 自定义事件） |
-| 前端 | Vue 3 + Vite（`frontend/` 目录） |
+| 前端 | Vue 3 + Vite（`lion-frontend/` 目录） |
 
 ## Spring AI 知识点速览（本项目落点）
 
@@ -209,6 +209,7 @@
 | `spring-ai-starter-mcp-server-webmvc` + `@McpTool` / `@McpToolParam` | 本服务内置 streamable-http Server（`/mcp`）：`tools/mcptool/OrderMcpTools` |
 | `spring-ai-starter-mcp-client-webflux` + `ToolCallbackProvider` | yml 静态配置的第三方 MCP Server 工具接入，同样参与向量索引与熔断保护 |
 | MCP 官方 SDK（`McpClient` / `McpSyncClient` / `HttpClientStreamableHttpTransport`）+ `McpToolUtils.getToolCallbacksFromSyncClients` | 页面动态增删 MCP Server：运行期建连、`listTools`、转 `ToolCallback` 后触发索引重建（`McpServerServiceImpl`）；SSE 传输已被 MCP 规范与 Spring AI 2.0 废弃，统一用 Streamable HTTP |
+| `lion-mcp-server`（本工程 Maven 子模块） | MCP 传输方式演示：同一份代码同时支持 stdio（子进程）与 streamable-http（独立端口 8085），见该模块 README |
 
 **7. 可观测与版本对齐**
 
@@ -222,42 +223,52 @@
 ## 项目结构
 
 ```
-lion-agent/
-├── src/main/java/com/lion/agent/
-│   ├── advisor/            # Advisor 链：TokenUsage / ConversationSummary / QaCache / Memory 注入
-│   ├── common/             # Result、PageResult、枚举、异步队列组件（async/：RedisTaskQueue + AbstractRedisTaskConsumer）
-│   ├── config/             # AiConfig、PromptConfig（st 模板）、SaTokenConfig、线程池等
-│   ├── controller/         # Auth / Chat / Conversation / Knowledge / Document / Memory / Skill / TokenUsage
-│   │   └── test/           # LangfuseTestController（评分/摄取手工调试）
-│   ├── dto/                # 请求体与任务消息（Register / Login / Skill / UpdateProfile / UpdatePassword / DocumentProcessTask）
-│   ├── entity/             # User / Conversation / ChatMessage / ConversationSummary / KnowledgeBase /
-│   │                       # KnowledgeDocument / AiMemory / Skill / TokenUsage
-│   ├── exception/          # 全局异常（BusinessException + 统一处理）
-│   ├── mapper/             # MyBatis-Plus Mapper
-│   ├── service/
-│   │   ├── impl/           # 业务实现（Chat / KnowledgeDocument / KnowledgeRetrieval / Memory / Skill ...）
-│   │   ├── async/          # DocumentProcessConsumer（Redis 异步消费者）
-│   │   ├── retriever/      # 检索增强（Rerank 等）
-│   │   └── *.java          # 核心服务：ChatService / IntentRecognitionService / QaCacheService /
-│   │                       # KnowledgeRetrievalService / MemoryExtractor / MemoryService /
-│   │                       # SkillToolRegistry / ToolRegistryService / WeatherService ...
-│   ├── tools/              # DateTools / UserTools / StarFortuneTools / TimeLimiterTools / ToolCallbackBuilder / mcptool/
-│   ├── utils/              # LangfuseIngestClient（原生摄取+评分）/ DashScopeRerankUtils / MilvusQueryUtils
-│   └── vo/                 # 返回视图对象
-├── src/main/resources/
-│   ├── application.yml     # 公共配置：框架 + 业务参数 + 中间件连接默认值（环境变量覆盖）
-│   ├── application-dev.yml # 本地开发档：debug 日志 / Swagger UI / AI 观测（默认激活）
-│   ├── db/init.sql         # 建库建表 + 内置技能种子数据
-│   └── prompts/*.st        # 提示词模板（意图识别 / 记忆抽取 / 改写 / 重排 / 门控 等）
-├── frontend/               # Vue 3 前端（views / components / api / router）
-│   ├── src/views/          # Login / Home / Chat / MultimodalChat / knowledge/ / memory / skill/ / usage
-│   ├── src/components/     # UserProfileModal / ConfirmDialog / InputDialog / PaginationBar
-│   └── src/api/            # auth / chat / knowledge / memory / skill / token-usage
-├── docs/images/            # README 效果图（截图存放目录）
-├── docker-compose.yml      # MySQL / Redis / etcd / Milvus / Attu 一键编排
-├── start-frontend.bat      # Windows 前端一键启动脚本
-├── .env / .env.example     # 本地敏感配置（.env 不提交）
-└── pom.xml
+lion-agent/                   # 聚合工程根（packaging=pom，Maven 多模块）
+├── pom.xml                   # lion-parent：modules = lion-agent-app / lion-mcp-server / lion-a2a-server
+│                             # 统一 Java 21、Spring Boot 4.0.7、Spring AI 2.0.1（目录名与 artifactId 一致）
+├── lion-agent-app/           # 主应用（Spring Boot 后端）
+│   ├── src/main/java/com/lion/agent/
+│   │   ├── advisor/            # Advisor 链：TokenUsage / ConversationSummary / QaCache / Memory 注入
+│   │   ├── common/             # Result、PageResult、枚举、异步队列组件（async/：RedisTaskQueue + AbstractRedisTaskConsumer）
+│   │   ├── config/             # AiConfig、PromptConfig（st 模板）、SaTokenConfig、线程池等
+│   │   ├── controller/         # Auth / Chat / Conversation / Knowledge / Document / Memory / Skill / TokenUsage
+│   │   │   └── test/           # LangfuseTestController（评分/摄取手工调试）
+│   │   ├── dto/                # 请求体与任务消息（Register / Login / Skill / UpdateProfile / UpdatePassword / DocumentProcessTask）
+│   │   ├── entity/             # User / Conversation / ChatMessage / ConversationSummary / KnowledgeBase /
+│   │   │                       # KnowledgeDocument / AiMemory / Skill / TokenUsage
+│   │   ├── exception/          # 全局异常（BusinessException + 统一处理）
+│   │   ├── mapper/             # MyBatis-Plus Mapper
+│   │   ├── service/
+│   │   │   ├── impl/           # 业务实现（Chat / KnowledgeDocument / KnowledgeRetrieval / Memory / Skill ...）
+│   │   │   ├── async/          # DocumentProcessConsumer（Redis 异步消费者）
+│   │   │   ├── retriever/      # 检索增强（Rerank 等）
+│   │   │   └── *.java          # 核心服务：ChatService / IntentRecognitionService / QaCacheService /
+│   │   │                       # KnowledgeRetrievalService / MemoryExtractor / MemoryService /
+│   │   │                       # SkillToolRegistry / ToolRegistryService / WeatherService ...
+│   │   ├── tools/              # DateTools / UserTools / StarFortuneTools / TimeLimiterTools / ToolCallbackBuilder / mcptool/
+│   │   ├── utils/              # LangfuseIngestClient（原生摄取+评分）/ DashScopeRerankUtils / MilvusQueryUtils
+│   │   └── vo/                 # 返回视图对象
+│   ├── src/main/resources/
+│   │   ├── application.yml     # 公共配置：框架 + 业务参数 + 中间件连接默认值（环境变量覆盖）
+│   │   ├── application-dev.yml # 本地开发档：debug 日志 / Swagger UI / AI 观测（默认激活）
+│   │   ├── mcp-servers.json    # stdio 连接定义（随 jar 打包）
+│   │   └── prompts/*.st        # 提示词模板（意图识别 / 记忆抽取 / 改写 / 重排 / 门控 等）
+│   ├── logs/ upload/           # 运行时目录（相对模块工作目录）
+│   └── target/                 # lion-agent-app-1.0.0.jar（mvn package 产物）
+├── lion-mcp-server/          # MCP 传输演示：同一份代码支持 stdio 与 streamable-http（见该模块 README）
+├── lion-a2a-server/          # A2A 协议服务端（暴露 AgentCard 与 JSON-RPC 端点）
+├── lion-frontend/            # Vue 3 前端（views / components / api / router）
+│   ├── src/views/            # Login / Home / Chat / MultimodalChat / knowledge/ / memory / skill/ / usage
+│   ├── src/components/       # UserProfileModal / ConfirmDialog / InputDialog / PaginationBar
+│   └── src/api/              # auth / chat / knowledge / memory / skill / token-usage
+├── docs/                     # 项目文档（不属于任何模块）
+│   ├── db/init.sql           # 建库建表 + 内置技能种子数据（MySQL 容器首次启动时执行）
+│   └── *.md                  # 技术笔记（如 spring-ai-advisor-执行链路.md）
+├── bin/                      # Windows 脚本：package-backend（-all）/ package-frontend / start-backend / start-frontend
+├── docker-compose.yml        # MySQL / Redis / etcd / Milvus / Attu 一键编排
+├── Dockerfile                # 后端镜像（拷入 lion-agent-app/target/*.jar）
+├── start-frontend.bat        # Windows 前端一键启动脚本
+└── .env / .env.example       # 本地敏感配置（.env 不提交）
 ```
 
 ## 快速开始
@@ -269,7 +280,7 @@ lion-agent/
 #    - 方案 B：自行安装 MySQL 8 / Redis / Milvus（见下方「中间件环境准备」）
 
 # 2. 初始化数据库（方案 B 需要；方案 A 已由 MySQL 容器自动执行 init.sql）
-mysql -uroot -p lion_agent < src/main/resources/db/init.sql
+mysql -uroot -p lion_agent < docs/db/init.sql
 
 # 3. 配置敏感信息：复制模板为 .env 并填入真实值
 cp .env.example .env
@@ -281,7 +292,7 @@ mvn spring-boot:run
 # 不加载 dev 档（只用 application.yml 公共配置）：mvn spring-boot:run -Dspring-boot.run.profiles=default
 
 # 5. 启动前端
-cd frontend && npm install && npm run dev
+cd lion-frontend && npm install && npm run dev
 ```
 
 - Swagger UI：`http://localhost:8080/swagger-ui.html`
@@ -320,7 +331,7 @@ CREATE USER IF NOT EXISTS 'xxkfz'@'%' IDENTIFIED BY 'xxkfz';
 GRANT ALL PRIVILEGES ON lion_agent.* TO 'xxkfz'@'%';
 FLUSH PRIVILEGES;"
 # 3. 执行初始化脚本（含建表）
-mysql -uxxkfz -p lion_agent < src/main/resources/db/init.sql
+mysql -uxxkfz -p lion_agent < docs/db/init.sql
 ```
 
 #### Redis
@@ -392,7 +403,7 @@ docker compose down -v            # 停止并删除全部数据卷（慎用，�
 #### 数据持久化与初始化
 
 - 数据保存在命名卷：`mysql-data`、`redis-data`、`etcd-data`、`milvus-data`，`docker compose down` 不丢失。
-- MySQL 首次启动会挂载 `src/main/resources/db/init.sql` 到容器初始化目录自动建库建表；如需重建，先 `docker compose down -v` 清卷再 `up -d`。
+- MySQL 首次启动会挂载 `docs/db/init.sql` 到容器初始化目录自动建库建表；如需重建，先 `docker compose down -v` 清卷再 `up -d`。
 - 镜像版本说明：Milvus 服务端需与 Spring AI 的 milvus-sdk-java 大版本一致（当前 2.6.x），并保持 `application*.yml` 中 `embedding-dimension: 1024`、索引类型（AUTOINDEX / COSINE）不变；升级大版本前请先验证兼容性。
 
 ### 应用连接配置
@@ -415,8 +426,8 @@ docker compose --profile app up -d --build # 构建并启动中间件 + 应用
 docker compose logs -f backend             # 看后端启动日志
 ```
 
-- 后端镜像：根目录 `Dockerfile`（只含 JRE；**镜像内不编译**，直接拷入本机已打好的 `target/*.jar`，构建前先执行 `mvn -B clean package -DskipTests`）
-- 前端镜像：`frontend/Dockerfile`（Vite 构建静态资源 + Nginx 反代 `/api` 到 backend）
+- 后端镜像：根目录 `Dockerfile`（只含 JRE；**镜像内不编译**，直接拷入本机已打好的 `lion-agent-app/target/*.jar`，构建前先执行 `mvn -B clean package -DskipTests`）
+- 前端镜像：`lion-frontend/Dockerfile`（Vite 构建静态资源 + Nginx 反代 `/api` 到 backend）
 - 容器内中间件一律走服务名（`mysql` / `redis` / `milvus-standalone`），无需改 yml
 - dev 档的调试增强已在 compose 里用环境变量关成生产行为：`LOG_LEVEL=info`、`AI_LOG_LEVEL=warn`、`AI_LOG_PROMPT=false`、`SPRINGDOC_ENABLED=false`
 - 想彻底不加载 `application-dev.yml`，在 compose 的 backend 里加一行 `SPRING_PROFILES_ACTIVE: default`

@@ -1,0 +1,17 @@
+# ==================== streamable-http 传输 ====================
+# 本服务独立监听 HTTP 端口，客户端通过 URL 连接。
+# 特点：可远程、可多客户端共享、可独立扩缩容；需要管理端口与网络可达性。
+
+server:
+  port: 8085
+
+spring:
+  ai:
+    mcp:
+      server:
+        stdio: false
+        # STATELESS：每次请求独立、不保留会话状态，与客户端的 streamable-http 配置对应
+        # 改成 STREAMABLE 则支持流式响应（服务端推 SSE 流）
+        protocol: STATELESS
+        streamable-http:
+          mcp-endpoint: /mcp

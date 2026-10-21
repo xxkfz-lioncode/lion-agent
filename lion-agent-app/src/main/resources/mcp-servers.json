@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "lion-demo-stdio": {
+      "command": "java",
+      "args": [
+        "-Dspring.profiles.active=stdio",
+        "-jar",
+        "E:/xxkfz/lion-agent/lion-mcp-server/target/lion-mcp-server.jar"
+      ]
+    }
+  }
+}

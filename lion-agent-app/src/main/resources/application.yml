@@ -56,7 +56,8 @@ spring:
   ai:
     mcp:
       server:
-        name: mcp-server
+        # 本服务对外暴露的 MCP 服务名。原为 mcp-server，与新模块重名，改为 lion-agent 以作区分
+        name: lion-agent
         version: 1.0.0
         protocol: STATELESS
         streamable-http:
@@ -71,20 +72,37 @@ spring:
           enabled: true
         request-timeout: 120s
         # 静态 MCP 连接按协议分类（2.0 语法）：
+        # - stdio：由本服务拉起子进程（jar / 命令），通过 stdin/stdout 交换 JSON-RPC
         # - streamable-http：Streamable HTTP / Stateless 服务（默认端点 /mcp）
         # - sse：旧式 SSE 服务（默认端点 /sse），若对方只暴露 /mcp 仍配在 sse 下会 404
         # 注：若该服务已改由页面「MCP Server 管理」动态维护，可整段注释，避免启动时重复接入同一服务
+        #
+        # ⚠️ 同一个 mcp-server 只能用一种方式接入：两种方式同时指向它时，
+        #    同一批工具会被注册两遍，Spring AI 抛 "Multiple tools with the same name"。
+        #    要对比 stdio 与 http，注释掉其中一种再重启本服务。
+        #
+        # ---- 方式一：stdio（当前启用）----
+        # 连接定义放在 resources/mcp-servers.json，随 jar 一起打包，路径不会因工作目录变化而失效
+        # 该文件必须是两层结构：{ "mcpServers": { 服务名: { command / args / env } } }
+        # 顶层是分组名（沿用 Claude Desktop 约定，代码会把所有分组展平合并），少了这层会启动失败
+#        stdio:
+#          servers-configuration: classpath:mcp-servers.json
+          # 若想不改包就调整连接（jar 路径因人而异），改用外部文件：
+          # servers-configuration: file:./config/mcp-servers.json
+          # 注：若这里再写 connections，两者会合并，同名连接以 JSON 为准
+
+        # ---- 方式二：streamable-http（连接独立启动的 mcp-server，端口 8085）----
+        # ⚠️ 与 stdio 指向同一服务时工具重名（Multiple tools with the same name），务必二选一
         streamable-http:
           connections:
-            # 对方 MCP Server 地址（Streamable HTTP），调用旅行规划
-            travel-planner:
-              url: http://localhost:8083
+            lion-demo-http:
+              url: http://localhost:8085
               endpoint: /mcp
-#        sse:
-#          connections:
-            # 旧式 SSE 服务示例（仅对方只支持 SSE 时才用 sse 块）
-#             graph-analysis:
-#               url: http://localhost:8082
+        # ---- 方式三：sse（旧式 SSE，仅对方只支持 SSE 时才用；对方只暴露 /mcp 时配这里会 404）----
+        # sse:
+        #   connections:
+        #     graph-analysis:
+        #       url: http://localhost:8082
 
 
     chat:
@@ -224,6 +242,14 @@ lion:
     path: ${LION_UPLOAD_PATH:upload/}
     # 允许上传的文件类型（MIME）
     allowed-types: text/plain,text/markdown,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document
+  # 发给远程 MCP Server 的调用凭据（随工具调用的 _meta 一起发出，见 McpAuthSupport）
+  mcp:
+    auth:
+      # HMAC-SHA256 签名密钥：mcp-server 侧必须配置完全相同的值
+      # 生产环境用环境变量 LION_MCP_AUTH_SECRET 覆盖，不要保留这个默认值
+      secret: ${LION_MCP_AUTH_SECRET:123456789abcdefghijkli}
+      # 有效期（分钟）：短期有效，用来限制凭据泄露后的影响范围
+      ttl-minutes: 5
   # HTML 文件生成工具（HtmlFileTools）
   tools:
     html:

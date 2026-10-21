@@ -1,0 +1,17 @@
+# ==================== stdio 传输 ====================
+# 客户端（lion-agent）以子进程方式拉起本 jar，通过 stdin/stdout 交换 JSON-RPC 消息。
+# 特点：无需端口、无需部署；进程生命周期由客户端管理，适合本地工具、命令行类集成。
+
+spring:
+  main:
+    # 不启动 Web 容器：stdio 模式下没有 HTTP 端点
+    web-application-type: none
+    # 启动 Banner 会打印到 stdout，与 JSON-RPC 通道冲突，必须关闭
+    banner-mode: off
+  ai:
+    mcp:
+      server:
+        stdio: true
+
+# 日志分流见 logback-spring.xml：stdio profile 下日志一律走 stderr + 文件。
+# 任何打到 stdout 的内容（含 System.out.println）都会让客户端解析 JSON 失败。

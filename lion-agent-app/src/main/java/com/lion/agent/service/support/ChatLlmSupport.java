@@ -31,6 +31,8 @@ public class ChatLlmSupport {
     private final ToolRegistryService toolRegistryService;
     /** 模型配置管理（对话时按类型取默认模型热切换，见模型管理页面） */
     private final ModelConfigService modelConfigService;
+    /** MCP 调用凭据签发：给远程 MCP Server 的 _meta 里放短期 JWT，而不是固定字符串 */
+    private final McpAuthSupport mcpAuthSupport;
 
     /**
      * 同步调用千问大模型（纯文本）
@@ -54,7 +56,9 @@ public class ChatLlmSupport {
                             .param(AdvisorConstants.CHAT_TYPE_KEY, chatType)
                             .param(AdvisorConstants.RAW_USER_MESSAGE_KEY, rawUserMessage))
                     // 工具上下文：服务端注入，模型不可见也不可篡改
-                    .toolContext(Map.of(AdvisorConstants.USER_ID_KEY, userId))
+                    // Authorization 用短期 JWT（含 uid、5 分钟过期、可验签），由 McpAuthSupport 签发
+                    .toolContext(Map.of(AdvisorConstants.USER_ID_KEY, userId,
+                            McpAuthSupport.AUTH_CONTEXT_KEY, mcpAuthSupport.buildAuthHeader(userId)))
                     // 工具按需注册：常驻（UserTools）+ 向量预筛（StarFortuneTools 等），见 ToolRegistryService
                     .tools(toolRegistryService.selectTools(message, userId));
             // 模型热切换：模型管理页面设置的默认 chat 模型按次覆盖；表中无默认记录时不覆盖（沿用 yml 配置）

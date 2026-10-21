@@ -6,8 +6,8 @@
 # 构建产物
 # 注意：target/*.jar 是镜像必需的输入（Dockerfile 直接拷入已打好的 jar），
 #      因此这里不能忽略 target/，否则 docker build 会报找不到 target/*.jar
-frontend/dist/
-frontend/node_modules/
+lion-frontend/dist/
+lion-frontend/node_modules/
 **/node_modules/
 
 # 版本控制与 IDE
@@ -34,4 +34,4 @@ logs/
 upload/
 
 # 其他无关目录
-a2a-server/
+lion-a2a-server/

@@ -1,7 +1,9 @@
 package com.lion.agent.config;
 
 import com.lion.agent.advisor.*;
+import com.lion.agent.common.constants.AdvisorConstants;
 import com.lion.agent.mapper.ChatMessageMapper;
+import com.lion.agent.service.support.McpAuthSupport;
 import com.lion.agent.service.SensitiveWordService;
 import com.lion.agent.mapper.ConversationSummaryMapper;
 import com.lion.agent.advisor.memory.ReadLimitChatMemory;
@@ -16,6 +18,7 @@ import org.springframework.ai.chat.client.advisor.ToolCallingAdvisor;
 import org.springframework.ai.chat.client.advisor.toolsearch.ToolSearchToolCallingAdvisor;
 import org.springframework.ai.chat.client.advisor.toolsearch.autoconfigure.ToolSearchAdvisorProperties;
 import org.springframework.ai.embedding.BatchingStrategy;
+import org.springframework.ai.mcp.ToolContextToMcpMetaConverter;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.tool.toolsearch.ToolIndex;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -33,7 +36,9 @@ import org.springframework.ai.document.Document;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Spring AI 配置
@@ -160,7 +165,8 @@ public class AiConfig {
      * 多模态对话专用 ChatClient（图片 + 文本）。
      * <p>
      * 与 {@link #chatClient(ChatClient.Builder, ChatMemory, QaCacheService, ChatMessageMapper,
-     * ConversationSummaryMapper, TokenUsageService, MemoryService, ChatModel, PromptConfig) chatClient} 隔离：
+     * ConversationSummaryMapper, TokenUsageService, MemoryService, ChatModel, PromptConfig,
+     * SensitiveWordService) chatClient} 隔离：
      * 不挂载语义缓存/长期记忆/会话摘要等重 Advisor；除日志与 Token 统计外，
      * 额外挂载 {@link SensitiveWordAdvisor}（order -200，最外层短路，命中即不调用视觉模型）。
      * <p>
@@ -297,5 +303,38 @@ public class AiConfig {
                 // 每个会话各自最多保留 500 条消息
                 .maxMessages(500)
                 .build();
+    }
+
+    /**
+     * 把本地 ToolContext 的上下文透传给远程 MCP Server（作为 JSON-RPC 请求的 {@code _meta} 字段）。
+     *
+     * <p>两个容易写错的点（已按 Spring AI 2.0.1 的真实签名校正）：</p>
+     * <ul>
+     *   <li>{@code ToolContextToMcpMetaConverter#convert} 返回 {@code Map<String,Object>}，不是
+     *       {@code McpMeta}——McpMeta 是 Server 端<b>接收</b>侧的 record
+     *       （只能 {@code new McpMeta(map)}，没有 builder），Client 侧不需要构造它</li>
+     *   <li>{@code ToolContext} 只有 {@code getContext()}，没有 {@code get(key)}</li>
+     * </ul>
+     *
+     * <p>只透传非空且明确对外的字段：ToolContext 里还带着会话 ID、原始提问等内部信息，
+     * 全量外发给第三方 MCP Server 属于信息泄露，因此逐个挑选而不是整包转发。</p>
+     */
+    @Bean
+    public ToolContextToMcpMetaConverter toolContextToMcpMetaConverter() {
+        return toolContext -> {
+            Map<String, Object> ctx = toolContext.getContext();
+            Map<String, Object> meta = new HashMap<>();
+            Object userId = ctx.get(AdvisorConstants.USER_ID_KEY);
+            if (userId != null) {
+                meta.put("user-id", userId);
+            }
+            // 凭据字段：ChatLlmSupport 里放入的是 "Authorization"。
+            // 注意 _meta 会随每次工具调用发往对方，接入第三方 MCP Server 前必须确认其可信。
+            Object authorization = ctx.get(McpAuthSupport.AUTH_CONTEXT_KEY);
+            if (authorization != null) {
+                meta.put("auth-token", authorization);
+            }
+            return meta;
+        };
     }
 }
